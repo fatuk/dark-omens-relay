@@ -102,12 +102,13 @@ const wss = new WebSocketServer({ server });
 
 wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   const client: Client = {
-    id:     randomUUID(),
-    name:   'Unknown',
+    id:          randomUUID(),
+    name:        'Unknown',
     ws,
-    roomId: null,
-    alive:  true,
-    userId: null,
+    roomId:      null,
+    alive:       true,
+    missedPings: 0,
+    userId:      null,
   };
   clients.set(client.id, client);
   onClientConnect();
@@ -116,7 +117,7 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   const ip = req.socket.remoteAddress ?? '?';
   logger.info('+ connected', { id: short(client.id), ip, total: clients.size });
 
-  ws.on('pong', () => { client.alive = true; });
+  ws.on('pong', () => { client.alive = true; client.missedPings = 0; });
 
   ws.on('message', (raw: Buffer) => {
     let msg: ClientMessage;
@@ -158,6 +159,14 @@ function handle(client: Client, msg: ClientMessage): void {
       client.name   = String(msg.name).slice(0, 32).trim() || 'Player';
       client.userId = (msg as { token?: string }).token ?? null;   // пока просто сохраняем
       logger.debug('hello', { id: short(client.id), name: client.name });
+      break;
+    }
+
+    case 'ping': {
+      // Application-level keepalive from client — зачитываем как «живой»
+      client.alive = true;
+      client.missedPings = 0;
+      send(client, { type: 'pong' });
       break;
     }
 
@@ -350,15 +359,29 @@ function short(uuid: string): string {
 
 // ── Heartbeat ─────────────────────────────────────────────────────────────────
 
+// Максимум пропущенных понгов до разрыва.
+// При 30s интервале и MAX=2 — клиент получает 60s тишины прежде чем его кикнут.
+const HEARTBEAT_MAX_MISSED = 2;
+
 setInterval(() => {
   let pinged = 0;
   for (const client of clients.values()) {
     if (!client.alive) {
-      logger.warn('heartbeat timeout — terminating', { id: short(client.id), name: client.name });
-      client.ws.terminate();
-      onHeartbeatTerminate();
+      client.missedPings++;
+      if (client.missedPings >= HEARTBEAT_MAX_MISSED) {
+        logger.warn('heartbeat timeout — terminating', {
+          id: short(client.id), name: client.name, missed: client.missedPings,
+        });
+        client.ws.terminate();
+        onHeartbeatTerminate();
+        continue;
+      }
+      // Даём ещё один шанс: отправляем пинг снова, не сбрасывая alive=false
+      client.ws.ping();
+      pinged++;
       continue;
     }
+    client.missedPings = 0;
     client.alive = false;
     client.ws.ping();
     pinged++;

@@ -3,12 +3,13 @@ import type { WebSocket } from 'ws';
 // ── WebSocket клиент (in-memory) ───────────────────────────────────────────────
 
 export interface Client {
-  id:     string;
-  name:   string;
-  ws:     WebSocket;
-  roomId: string | null;
-  alive:  boolean;
-  userId: string | null;   // null = анонимный гость
+  id:          string;
+  name:        string;
+  ws:          WebSocket;
+  roomId:      string | null;
+  alive:       boolean;
+  missedPings: number;        // сколько подряд пропущено heartbeat-понгов
+  userId:      string | null; // null = анонимный гость
 }
 
 // ── Резюме комнаты для списка ──────────────────────────────────────────────────
@@ -31,6 +32,7 @@ export interface PlayerInfo {
 
 export type ClientMessage =
   | { type: 'hello';       name: string; token?: string }
+  | { type: 'ping' }
   | { type: 'list_rooms' }
   | { type: 'create_room'; room_name: string; password?: string; max_players?: number }
   | { type: 'join_room';   room_id: string;   password?: string }
@@ -43,6 +45,7 @@ export type ClientMessage =
 
 export type ServerMessage =
   | { type: 'welcome';       your_id: string }
+  | { type: 'pong' }
   | { type: 'room_created';  room_id: string; room_name: string }
   | { type: 'rooms_list';    rooms: RoomSummary[] }
   | { type: 'joined_room';   room_id: string; room_name: string; your_id: string; is_host: boolean; players: PlayerInfo[] }
