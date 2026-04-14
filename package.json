@@ -3,11 +3,11 @@
   "version": "1.0.0",
   "description": "Relay / matchmaking server for Dark Omens",
   "scripts": {
-    "dev":        "tsx watch src/relay/server.ts",
-    "dev:api":    "tsx watch src/api/server.ts",
-    "start":      "tsx src/relay/server.ts",
-    "start:api":  "tsx src/api/server.ts",
-    "build":      "tsc"
+    "dev": "tsx watch src/relay/server.ts",
+    "dev:api": "tsx watch src/api/server.ts",
+    "start": "tsx src/relay/server.ts",
+    "start:api": "tsx src/api/server.ts",
+    "build": "tsc"
   },
   "dependencies": {
     "@hono/node-server": "^1.19.14",
@@ -15,13 +15,12 @@
     "better-sqlite3": "^12.9.0",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.12",
-    "nodemailer": "^8.0.5",
+    "resend": "^6.11.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^22.0.0",
-    "@types/nodemailer": "^8.0.0",
     "@types/ws": "^8.5.13",
     "drizzle-kit": "^0.31.10",
     "tsx": "^4.19.0",

@@ -1,22 +1,11 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import { logger } from '../shared/logger.js';
 
 const DEV_MODE = process.env['DEV_MODE'] === 'true' || process.env['NODE_ENV'] !== 'production';
 
-// В DEV_MODE письма печатаются в консоль (не нужен SMTP)
-const transporter = DEV_MODE
-  ? null
-  : nodemailer.createTransport({
-      host:   process.env['SMTP_HOST']!,
-      port:   parseInt(process.env['SMTP_PORT'] ?? '587', 10),
-      secure: process.env['SMTP_SECURE'] === 'true',
-      auth: {
-        user: process.env['SMTP_USER']!,
-        pass: process.env['SMTP_PASS']!,
-      },
-    });
+const resend = DEV_MODE ? null : new Resend(process.env['RESEND_API_KEY']);
 
-const FROM = process.env['SMTP_FROM'] ?? 'Dark Omens <noreply@dark-omens.game>';
+const FROM = process.env['EMAIL_FROM'] ?? 'Dark Omens <noreply@dark-omens.game>';
 
 export async function sendOtpEmail(to: string, code: string): Promise<void> {
   const subject = 'Dark Omens — Ваш код входа';
@@ -29,12 +18,13 @@ export async function sendOtpEmail(to: string, code: string): Promise<void> {
     </div>
   `;
 
-  if (DEV_MODE || !transporter) {
+  if (DEV_MODE || !resend) {
     logger.info(`[DEV] OTP email → ${to}`, { code });
     console.log(`\n📧  OTP для ${to}: ${code}\n`);
     return;
   }
 
-  await transporter.sendMail({ from: FROM, to, subject, html });
+  const { error } = await resend.emails.send({ from: FROM, to, subject, html });
+  if (error) throw new Error(error.message);
   logger.info('OTP email sent', { to });
 }
