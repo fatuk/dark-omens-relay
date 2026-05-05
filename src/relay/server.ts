@@ -2,9 +2,11 @@ import { serve }      from '@hono/node-server';
 import { Hono }        from 'hono';
 import { WebSocketServer, WebSocket } from 'ws';
 import { randomUUID }  from 'crypto';
-import type { IncomingMessage } from 'http';
+import type { IncomingMessage, Server as HttpServer } from 'http';
 
-import { initDb }      from '../shared/db.js';
+import { db, initDb, getUserByToken, startGameSession, endGameSession, getGameSession, upsertGamePlayer } from '../shared/db.js';
+import { users as usersTable } from '../shared/schema.js';
+import { desc } from 'drizzle-orm';
 import { logger }      from '../shared/logger.js';
 import type { Client, ClientMessage, ServerMessage } from '../shared/types.js';
 
@@ -76,6 +78,19 @@ app.delete('/rooms/:id', (c) => {
 
 app.get('/dashboard', (c) => c.html(buildDashboard()));
 
+app.get('/users', (c) => {
+  if (ADMIN_KEY && c.req.header('x-admin-key') !== ADMIN_KEY) {
+    return c.text('Forbidden', 403);
+  }
+  const rows = db.select().from(usersTable).orderBy(desc(usersTable.createdAt)).all();
+  return c.json(rows.map(u => ({
+    id:        u.id,
+    email:     u.email,
+    name:      u.name,
+    createdAt: new Date(u.createdAt).toISOString(),
+  })));
+});
+
 // ── Запуск сервера с WebSocket ────────────────────────────────────────────────
 
 initDb();
@@ -98,7 +113,7 @@ const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({ server: server as unknown as HttpServer });
 
 wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   const client: Client = {
@@ -109,6 +124,9 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
     alive:       true,
     missedPings: 0,
     userId:      null,
+    rejected:    false,
+    ready:       false,
+    investigator: '',
   };
   clients.set(client.id, client);
   onClientConnect();
@@ -153,12 +171,28 @@ wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
 // ── Обработчики сообщений ─────────────────────────────────────────────────────
 
 function handle(client: Client, msg: ClientMessage): void {
+  if (client.rejected) return;  // клиент отклонён при hello — игнорируем все его сообщения
   switch (msg.type) {
 
     case 'hello': {
-      client.name   = String(msg.name).slice(0, 32).trim() || 'Player';
-      client.userId = (msg as { token?: string }).token ?? null;   // пока просто сохраняем
-      logger.debug('hello', { id: short(client.id), name: client.name });
+      const token = (msg as { token?: string }).token ?? null;
+      if (token) {
+        const user = getUserByToken(token);
+        if (!user) {
+          client.rejected = true;
+          sendError(client, 'Сессия недействительна или истекла — войдите заново');
+          client.ws.close();  // rejected=true заблокирует join_room из буфера
+          return;
+        }
+        client.name   = user.name;
+        client.userId = user.id;
+        logger.debug('hello (authenticated)', { id: short(client.id), name: client.name, userId: short(client.userId) });
+      } else {
+        // Без токена — только для локальной разработки
+        client.name   = String(msg.name).slice(0, 32).trim() || 'Player';
+        client.userId = null;
+        logger.debug('hello (no token)', { id: short(client.id), name: client.name });
+      }
       break;
     }
 
@@ -189,6 +223,7 @@ function handle(client: Client, msg: ClientMessage): void {
       send(client, {
         type: 'joined_room', room_id: room.id, room_name: room.name,
         your_id: client.id, is_host: true, players: getPlayersList(room.id),
+        game_started: false,
       });
       logger.info('room created', {
         room_id: room.id, name, host: client.name, maxPlayers, locked: !!msg.password,
@@ -216,18 +251,22 @@ function handle(client: Client, msg: ClientMessage): void {
       client.roomId = room.id;
 
       // Сообщаем всем остальным
-      broadcastToRoom(room.id, { type: 'player_joined', player: { id: client.id, name: client.name } }, client.id);
+      broadcastToRoom(room.id, { type: 'player_joined', player: { id: client.id, name: client.name, ready: false, investigator: '' } }, client.id);
 
       // Получаем актуальные данные комнаты (hostId мог обновиться)
       const freshRoom = getRoom(room.id)!;
+      const playersList = getPlayersList(room.id);
+      const session = getGameSession(room.id);
       send(client, {
         type: 'joined_room', room_id: room.id, room_name: room.name,
         your_id: client.id, is_host: freshRoom.hostId === client.id,
-        players: getPlayersList(room.id),
+        players: playersList,
+        game_started: session !== null,
       });
       logger.info('player joined room', {
         room_id: room.id, room_name: room.name,
         player: client.name, players_now: getPlayerCount(room.id),
+        players_state: playersList.map(p => ({ name: p.name, ready: p.ready, inv: p.investigator })),
       });
       break;
     }
@@ -249,12 +288,43 @@ function handle(client: Client, msg: ClientMessage): void {
 
     case 'relay': {
       if (!client.roomId) return sendError(client, 'Вы не в комнате');
-      const payload: ServerMessage = { type: 'relay', from_id: client.id, data: msg.data };
-      const bytes = broadcastToRoom(client.roomId, payload, client.id);
-      onRelayBroadcast(bytes);
+
+      // Перехватываем relay-действия — сохраняем стейт на сервере
+      const relayData = msg.data as Record<string, unknown>;
+      const action = String(relayData?.action ?? '');
+
+      if (action === 'set_ready') {
+        client.ready        = true;
+        client.investigator = String(relayData.investigator ?? '');
+        logger.info('set_ready stored', {
+          player: client.name, investigator: client.investigator, room: client.roomId,
+        });
+        // Персистим для аутентифицированных игроков
+        if (client.userId) {
+          upsertGamePlayer(client.roomId, client.userId, client.name, client.investigator, true);
+        }
+        // Рассылаем ВСЕМ в комнате (включая отправителя — для консистентности)
+        const payload: ServerMessage = { type: 'relay', from_id: client.id, data: msg.data };
+        const bytes = broadcastToRoom(client.roomId, payload);
+        onRelayBroadcast(bytes);
+      } else if (action === 'start_game') {
+        const room = getRoom(client.roomId);
+        if (room) {
+          startGameSession(room.id, room.hostId);
+          logger.info('game session started', { room_id: room.id, host: client.name });
+        }
+        const payload: ServerMessage = { type: 'relay', from_id: client.id, data: msg.data };
+        const bytes = broadcastToRoom(client.roomId, payload, client.id);
+        onRelayBroadcast(bytes);
+      } else {
+        const payload: ServerMessage = { type: 'relay', from_id: client.id, data: msg.data };
+        const bytes = broadcastToRoom(client.roomId, payload, client.id);
+        onRelayBroadcast(bytes);
+      }
+
       logger.debug('relay broadcast', {
         from: client.name, room_id: client.roomId,
-        recipients: getPlayerCount(client.roomId) - 1,
+        recipients: getPlayerCount(client.roomId),
       });
       break;
     }
@@ -316,6 +386,7 @@ function dissolveRoom(roomId: string, roomName: string, playerCount: number, rea
   for (const c of getRoomPlayers(roomId).values()) {
     c.roomId = null;
   }
+  endGameSession(roomId);  // каскадно удаляет game_players (FK ON DELETE CASCADE через rooms)
   deleteRoom(roomId);
   onRoomDeleted();
 }

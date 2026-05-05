@@ -1,0 +1,61 @@
+services:
+
+  relay:
+    build: .
+    image: dark-omens-relay
+    container_name: dark-omens-relay
+    restart: unless-stopped
+    command: node dist/relay/server.js
+    ports:
+      - "3030:3030"
+    volumes:
+      - db_data:/app/data
+      - logs:/app/logs
+    environment:
+      - RELAY_PORT=3030
+      - NODE_ENV=production
+      - LOG_LEVEL=INFO
+      - EMPTY_ROOM_TTL_MS=604800000   # 7 days
+      - DB_PATH=/app/data/game.db
+      - LOG_DIR=/app/logs
+    env_file:
+      - .env                           # ADMIN_KEY и другие секреты
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3030/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  api:
+    build: .
+    image: dark-omens-relay
+    container_name: dark-omens-api
+    restart: unless-stopped
+    command: node dist/api/server.js
+    ports:
+      - "3031:3031"
+    volumes:
+      - db_data:/app/data
+      - logs:/app/logs
+    environment:
+      - API_PORT=3031
+      - NODE_ENV=production
+      - LOG_LEVEL=INFO
+      - DB_PATH=/app/data/game.db
+      - LOG_DIR=/app/logs
+    env_file:
+      - .env                           # RESEND_API_KEY, EMAIL_FROM, ADMIN_KEY
+    depends_on:
+      relay:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3031/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  db_data:
+  logs:

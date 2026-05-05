@@ -8,8 +8,12 @@ export interface Client {
   ws:          WebSocket;
   roomId:      string | null;
   alive:       boolean;
-  missedPings: number;        // сколько подряд пропущено heartbeat-понгов
-  userId:      string | null; // null = анонимный гость
+  missedPings: number;
+  userId:      string | null;
+  rejected:    boolean;       // hello с невалидным токеном — игнорировать последующие сообщения
+  // ── Игровая сессия ──────────────────────────────────────────────────────────
+  ready:       boolean;       // нажал «Готов»
+  investigator: string;       // выбранный сыщик (пусто = не выбран)
 }
 
 // ── Резюме комнаты для списка ──────────────────────────────────────────────────
@@ -24,8 +28,10 @@ export interface RoomSummary {
 }
 
 export interface PlayerInfo {
-  id:   string;
-  name: string;
+  id:          string;
+  name:        string;
+  ready:       boolean;
+  investigator: string;
 }
 
 // ── WebSocket протокол: Client → Server ───────────────────────────────────────
@@ -48,7 +54,7 @@ export type ServerMessage =
   | { type: 'pong' }
   | { type: 'room_created';  room_id: string; room_name: string }
   | { type: 'rooms_list';    rooms: RoomSummary[] }
-  | { type: 'joined_room';   room_id: string; room_name: string; your_id: string; is_host: boolean; players: PlayerInfo[] }
+  | { type: 'joined_room';   room_id: string; room_name: string; your_id: string; is_host: boolean; players: PlayerInfo[]; game_started: boolean }
   | { type: 'player_joined'; player: PlayerInfo }
   | { type: 'player_left';   player_id: string; new_host_id: string | null }
   | { type: 'room_deleted';  room_id: string; reason: string }

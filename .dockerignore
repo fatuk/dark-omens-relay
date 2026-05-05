@@ -1,0 +1,10 @@
+node_modules
+dist
+logs
+.git
+.env
+*.db
+*.db-shm
+*.db-wal
+rooms-state.json
+ecosystem.config.cjs

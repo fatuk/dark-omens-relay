@@ -4,6 +4,7 @@
   "description": "Relay / matchmaking server for Dark Omens",
   "scripts": {
     "dev": "tsx watch src/relay/server.ts",
+    "dev:nodemon": "nodemon --watch src --ext ts --exec \"tsx src/relay/server.ts\"",
     "dev:api": "tsx watch src/api/server.ts",
     "start": "tsx src/relay/server.ts",
     "start:api": "tsx src/api/server.ts",
@@ -23,6 +24,7 @@
     "@types/node": "^22.0.0",
     "@types/ws": "^8.5.13",
     "drizzle-kit": "^0.31.10",
+    "nodemon": "^3.1.14",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0"
   }

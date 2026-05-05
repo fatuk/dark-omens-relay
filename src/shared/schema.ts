@@ -24,6 +24,24 @@ export const rooms = sqliteTable('rooms', {
   emptyAt:      integer('empty_at'),
 });
 
-export type User    = typeof users.$inferSelect;
-export type Session = typeof sessions.$inferSelect;
-export type Room    = typeof rooms.$inferSelect;
+// ── Игровые сессии ─────────────────────────────────────────────────────────────
+
+export const gameSessions = sqliteTable('game_sessions', {
+  roomId:    text('room_id').primaryKey().references(() => rooms.id, { onDelete: 'cascade' }),
+  hostId:    text('host_id').notNull(),
+  startedAt: integer('started_at').notNull(),
+});
+
+export const gamePlayers = sqliteTable('game_players', {
+  roomId:       text('room_id').notNull().references(() => rooms.id, { onDelete: 'cascade' }),
+  userId:       text('user_id').notNull(),
+  playerName:   text('player_name').notNull(),
+  investigator: text('investigator').notNull().default(''),
+  ready:        integer('ready', { mode: 'boolean' }).notNull().default(false),
+});
+
+export type User        = typeof users.$inferSelect;
+export type Session     = typeof sessions.$inferSelect;
+export type Room        = typeof rooms.$inferSelect;
+export type GameSession = typeof gameSessions.$inferSelect;
+export type GamePlayer  = typeof gamePlayers.$inferSelect;

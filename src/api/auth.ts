@@ -2,7 +2,7 @@ import { Hono }    from 'hono';
 import { zValidator } from '@hono/zod-validator';
 import { z }         from 'zod';
 import { randomUUID } from 'crypto';
-import { eq, lt, and } from 'drizzle-orm';
+import { eq, lt, and, gt } from 'drizzle-orm';
 
 import { db }        from '../shared/db.js';
 import { users, sessions } from '../shared/schema.js';
@@ -133,18 +133,29 @@ auth.post('/logout', async (c) => {
   return c.json({ ok: true });
 });
 
-// GET /auth/me  →  информация о текущем пользователе
+// GET /auth/me  →  информация о текущем пользователе + продлеваем сессию (rolling TTL)
 auth.get('/me', async (c) => {
   const token = c.req.header('Authorization')?.replace('Bearer ', '');
   if (!token) return c.json({ error: 'Unauthorized' }, 401);
 
+  const now = Date.now();
   const session = db.select().from(sessions).where(eq(sessions.token, token)).get();
-  if (!session || session.expiresAt < Date.now()) {
+  if (!session || session.expiresAt < now) {
     return c.json({ error: 'Session expired' }, 401);
   }
 
   const user = db.select().from(users).where(eq(users.id, session.userId)).get();
   if (!user) return c.json({ error: 'User not found' }, 404);
+
+  // Rolling session: продлеваем только если до истечения меньше 15 дней
+  const renewThreshold = SESSION_TTL_MS / 2;   // 15 дней
+  if (session.expiresAt - now < renewThreshold) {
+    db.update(sessions)
+      .set({ expiresAt: now + SESSION_TTL_MS })
+      .where(eq(sessions.token, token))
+      .run();
+    logger.debug('session renewed', { userId: user.id });
+  }
 
   return c.json({ id: user.id, email: user.email, name: user.name });
 });

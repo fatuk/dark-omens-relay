@@ -107,7 +107,12 @@ export function checkPassword(room: Room, password: string): boolean {
 }
 
 export function getPlayersList(roomId: string): PlayerInfo[] {
-  return Array.from(getPlayers(roomId).values()).map(c => ({ id: c.id, name: c.name }));
+  return Array.from(getPlayers(roomId).values()).map(c => ({
+    id:          c.id,
+    name:        c.name,
+    ready:       c.ready,
+    investigator: c.investigator,
+  }));
 }
 
 // ── Pruning ───────────────────────────────────────────────────────────────────
