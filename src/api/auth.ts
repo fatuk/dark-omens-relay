@@ -38,11 +38,12 @@ const auth = new Hono();
 
 // POST /auth/request  →  отправить OTP на email
 auth.post('/request', zValidator('json', z.object({
-  email: z.string().email().max(255),
+  // trim+lowercase ДО .email(), иначе пробелы по бокам валятся как невалидный email
+  email: z.string().trim().toLowerCase().pipe(z.string().email().max(255)),
   name:  z.string().min(1).max(32).optional(),
 })), async (c) => {
   const { email, name } = c.req.valid('json');
-  const normalEmail = email.toLowerCase().trim();
+  const normalEmail = email;   // уже нормализован валидатором
 
   // Генерируем 6-значный код
   const code = String(Math.floor(100_000 + Math.random() * 900_000));
@@ -67,12 +68,12 @@ auth.post('/request', zValidator('json', z.object({
 
 // POST /auth/verify  →  проверить OTP, вернуть session token
 auth.post('/verify', zValidator('json', z.object({
-  email: z.string().email().max(255),
+  email: z.string().trim().toLowerCase().pipe(z.string().email().max(255)),
   code:  z.string().length(6),
   name:  z.string().min(1).max(32).optional(),
 })), async (c) => {
   const { email, code, name } = c.req.valid('json');
-  const normalEmail = email.toLowerCase().trim();
+  const normalEmail = email;
   const entry = otpStore.get(normalEmail) as (OtpEntry & { hint_name?: string }) | undefined;
 
   if (!entry) {

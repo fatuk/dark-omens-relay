@@ -111,6 +111,21 @@ export function upsertGamePlayer(
   `).run(roomId, userId, playerName, investigator, ready ? 1 : 0);
 }
 
+export function getGamePlayer(
+  roomId: string, userId: string,
+): { playerName: string; investigator: string; ready: boolean } | null {
+  const row = sqlite.prepare(
+    `SELECT player_name, investigator, ready FROM game_players WHERE room_id = ? AND user_id = ?`
+  ).get(roomId, userId) as { player_name: string; investigator: string; ready: number } | undefined;
+  if (!row) return null;
+  return {
+    playerName:   row.player_name,
+    investigator: row.investigator,
+    ready:        row.ready === 1,
+  };
+}
+
+
 export function getGamePlayers(
   roomId: string,
 ): { userId: string; playerName: string; investigator: string; ready: boolean }[] {
