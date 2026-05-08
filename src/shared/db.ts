@@ -55,7 +55,8 @@ export function initDb(): void {
     CREATE TABLE IF NOT EXISTS game_sessions (
       room_id    TEXT PRIMARY KEY REFERENCES rooms(id) ON DELETE CASCADE,
       host_id    TEXT NOT NULL,
-      started_at INTEGER NOT NULL
+      started_at INTEGER NOT NULL,
+      snapshot   TEXT
     );
 
     CREATE TABLE IF NOT EXISTS game_players (
@@ -71,6 +72,12 @@ export function initDb(): void {
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_rooms_empty ON rooms(empty_at);
   `);
+  // Миграция для старых БД: добавляем snapshot, если его не было.
+  // SQLite не умеет ADD COLUMN IF NOT EXISTS, поэтому проверяем через PRAGMA.
+  const cols = sqlite.prepare(`PRAGMA table_info(game_sessions)`).all() as Array<{ name: string }>;
+  if (!cols.some(c => c.name === 'snapshot')) {
+    sqlite.exec(`ALTER TABLE game_sessions ADD COLUMN snapshot TEXT`);
+  }
   console.log(`[db] SQLite ready at ${DB_PATH}`);
 }
 
@@ -95,6 +102,19 @@ export function getGameSession(roomId: string): { hostId: string; startedAt: num
     `SELECT host_id, started_at FROM game_sessions WHERE room_id = ?`
   ).get(roomId) as { host_id: string; started_at: number } | undefined;
   return row ? { hostId: row.host_id, startedAt: row.started_at } : null;
+}
+
+/** Сохранить полный JSON-снапшот игрового стейта от хоста. */
+export function saveGameSnapshot(roomId: string, snapshotJson: string): void {
+  sqlite.prepare(`UPDATE game_sessions SET snapshot = ? WHERE room_id = ?`)
+    .run(snapshotJson, roomId);
+}
+
+/** Прочитать снапшот игрового стейта (null если игра не запущена или snapshot пуст). */
+export function getGameSnapshot(roomId: string): string | null {
+  const row = sqlite.prepare(`SELECT snapshot FROM game_sessions WHERE room_id = ?`)
+    .get(roomId) as { snapshot: string | null } | undefined;
+  return row?.snapshot ?? null;
 }
 
 export function upsertGamePlayer(

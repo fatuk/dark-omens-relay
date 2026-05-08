@@ -30,6 +30,10 @@ export const gameSessions = sqliteTable('game_sessions', {
   roomId:    text('room_id').primaryKey().references(() => rooms.id, { onDelete: 'cascade' }),
   hostId:    text('host_id').notNull(),
   startedAt: integer('started_at').notNull(),
+  // Полный JSON-снапшот стейта от хоста (round/phase/players/...).
+  // Обновляется при каждом game_sync. Позволяет восстановить игру, если
+  // все клиенты вышли и потом вернулись.
+  snapshot:  text('snapshot'),
 });
 
 export const gamePlayers = sqliteTable('game_players', {

@@ -1,6 +1,7 @@
 import {
   getUserByToken,
   startGameSession, getGameSession, upsertGamePlayer, getGamePlayer,
+  saveGameSnapshot, getGameSnapshot,
 } from '../shared/db.js';
 import { logger } from '../shared/logger.js';
 import type { Client, ClientMessage, ServerMessage } from '../shared/types.js';
@@ -23,6 +24,20 @@ import {
 export interface HandlerContext {
   /** Все активные WS-клиенты (для lookup'а имён при promote new host). */
   clients: Map<string, Client>;
+}
+
+
+/**
+ * Push актуального rooms_list всем клиентам в главном меню (roomId=null).
+ * Вызывается после любого изменения списка/счётчиков игроков.
+ */
+function broadcastRoomsList(ctx: HandlerContext): void {
+  const payload: ServerMessage = { type: 'rooms_list', rooms: listRooms() };
+  for (const c of ctx.clients.values()) {
+    if (c.roomId === null && !c.rejected) {
+      send(c, payload);
+    }
+  }
 }
 
 /** Обработать входящее сообщение от клиента. Маршрутизирует по msg.type. */
@@ -77,8 +92,10 @@ export function handle(client: Client, msg: ClientMessage, ctx: HandlerContext):
         type: 'joined_room', room_id: room.id, room_name: room.name,
         your_id: client.id, is_host: true, players: getPlayersList(room.id),
         game_started: false,
+        game_state: null,
       });
       logger.info('room created', { room_id: room.id, name, host: client.name, maxPlayers, locked: !!msg.password });
+      broadcastRoomsList(ctx);
       break;
     }
 
@@ -116,16 +133,22 @@ export function handle(client: Client, msg: ClientMessage, ctx: HandlerContext):
       const freshRoom = getRoom(room.id)!;
       const playersList = getPlayersList(room.id);
       const session = getGameSession(room.id);
+      const snapshotJson = session ? getGameSnapshot(room.id) : null;
       send(client, {
         type: 'joined_room', room_id: room.id, room_name: room.name,
         your_id: client.id, is_host: freshRoom.hostId === client.id,
         players: playersList,
         game_started: session !== null,
+        // Снапшот стейта от хоста (если был сохранён). Клиент инициализирует
+        // GameState из него если хоста сейчас нет (или просто использует как
+        // быстрое восстановление).
+        game_state: snapshotJson ? JSON.parse(snapshotJson) : null,
       });
       logger.info('player joined room', {
         room_id: room.id, room_name: room.name,
         player: client.name, players_now: getPlayerCount(room.id),
       });
+      broadcastRoomsList(ctx);
       break;
     }
 
@@ -140,6 +163,22 @@ export function handle(client: Client, msg: ClientMessage, ctx: HandlerContext):
       if (room.hostId !== client.id) return sendError(client, 'Только хост может удалить комнату');
       const playerCount = getPlayerCount(room.id);
       dissolveRoom(room.id, room.name, playerCount, 'Хост закрыл комнату');
+      broadcastRoomsList(ctx);
+      break;
+    }
+
+    case 'delete_any_room': {
+      // Удаление любой ПУСТОЙ комнаты из списка (для чистки тестовых).
+      // Не пустые удаляются только хостом изнутри (delete_room).
+      if (!client.userId) return sendError(client, 'Нужна авторизация');
+      const targetId = msg.room_id;
+      const target = getRoom(targetId);
+      if (!target) return sendError(client, 'Комната не найдена');
+      if (getPlayerCount(target.id) > 0) {
+        return sendError(client, 'Комната не пуста — попросите хоста закрыть её');
+      }
+      dissolveRoom(target.id, target.name, 0, 'Удалена пользователем из списка');
+      broadcastRoomsList(ctx);
       break;
     }
 
@@ -160,6 +199,13 @@ export function handle(client: Client, msg: ClientMessage, ctx: HandlerContext):
       } else if (action === 'start_game') {
         const room = getRoom(client.roomId);
         if (room) startGameSession(room.id, room.hostId);
+        const payload: ServerMessage = { type: 'relay', from_id: client.id, data: msg.data };
+        const bytes = broadcastToRoom(client.roomId, payload, client.id);
+        onRelayBroadcast(bytes);
+      } else if (action === 'game_sync') {
+        // Хост рассылает полный стейт — сохраняем снапшот в БД для
+        // восстановления, если все клиенты выйдут.
+        saveGameSnapshot(client.roomId, JSON.stringify(relayData));
         const payload: ServerMessage = { type: 'relay', from_id: client.id, data: msg.data };
         const bytes = broadcastToRoom(client.roomId, payload, client.id);
         onRelayBroadcast(bytes);
@@ -197,9 +243,12 @@ export function leaveRoom(client: Client, ctx: HandlerContext): void {
     room_id: roomId, name: room.name, player: client.name,
     players_left: getPlayerCount(roomId),
   });
+  broadcastRoomsList(ctx);
 
   if (getPlayerCount(roomId) === 0) {
     markRoomEmpty(room);
+    // game_session НЕ удаляем: вернувшиеся игроки восстановят стейт из
+    // последнего снапшота (saveGameSnapshot пишет JSON в БД при game_sync).
     const ttlDays = (EMPTY_ROOM_TTL_MS / 86_400_000).toFixed(1);
     logger.info(`room empty — will prune in ${ttlDays}d if nobody returns`, { room_id: roomId, name: room.name });
     return;

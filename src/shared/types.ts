@@ -44,6 +44,7 @@ export type ClientMessage =
   | { type: 'join_room';   room_id: string;   password?: string }
   | { type: 'leave_room' }
   | { type: 'delete_room' }
+  | { type: 'delete_any_room'; room_id: string }
   | { type: 'relay';       data: unknown }
   | { type: 'relay_to';    to: string; data: unknown };
 
@@ -54,7 +55,7 @@ export type ServerMessage =
   | { type: 'pong' }
   | { type: 'room_created';  room_id: string; room_name: string }
   | { type: 'rooms_list';    rooms: RoomSummary[] }
-  | { type: 'joined_room';   room_id: string; room_name: string; your_id: string; is_host: boolean; players: PlayerInfo[]; game_started: boolean }
+  | { type: 'joined_room';   room_id: string; room_name: string; your_id: string; is_host: boolean; players: PlayerInfo[]; game_started: boolean; game_state: Record<string, unknown> | null }
   | { type: 'player_joined'; player: PlayerInfo }
   | { type: 'player_left';   player_id: string; new_host_id: string | null }
   | { type: 'room_deleted';  room_id: string; reason: string }
