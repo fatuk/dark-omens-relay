@@ -1,6 +1,7 @@
-import { Hono } from 'hono';
-import { auth }         from './auth.js';
-import { getDevOtpLog } from './mailer.js';
+import { Hono }          from 'hono';
+import { cors }          from 'hono/cors';
+import { auth }          from './auth.js';
+import { getDevOtpLog }  from './mailer.js';
 
 /**
  * Создаёт Hono-приложение API. Без побочных эффектов (не вызывает serve, не пишет логи).
@@ -9,12 +10,17 @@ import { getDevOtpLog } from './mailer.js';
 export function buildApp(): Hono {
   const app = new Hono();
 
-  app.use('*', async (c, next) => {
-    c.header('Access-Control-Allow-Origin', '*');
-    c.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    if (c.req.method === 'OPTIONS') return new Response(null, { status: 204 });
-    await next();
-  });
+  // CORS для web-билда Godot. Раньше был самописный middleware, но он
+  // возвращал preflight через `new Response(null, ...)` — этот объект НЕ
+  // нёс заголовки, выставленные через `c.header()`, и браузер блокировал
+  // основной запрос. `hono/cors` корректно обрабатывает preflight + ставит
+  // Allow-Methods (которого не хватало).
+  app.use('*', cors({
+    origin:       '*',
+    allowMethods: ['GET', 'POST', 'OPTIONS'],
+    allowHeaders: ['Content-Type', 'Authorization'],
+    maxAge:       86400,
+  }));
 
   app.get('/health', (c) => c.json({
     status:    'ok',

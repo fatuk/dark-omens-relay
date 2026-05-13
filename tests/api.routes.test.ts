@@ -18,16 +18,30 @@ describe('GET /health', () => {
 });
 
 describe('CORS middleware', () => {
-  it('добавляет CORS-заголовки к обычным ответам', async () => {
-    const res = await app.fetch(new Request('http://localhost/health'));
+  it('добавляет Allow-Origin к обычным ответам', async () => {
+    // hono/cors на simple-запросах кладёт только allow-origin; allow-methods
+    // и allow-headers — это preflight-only (см. отдельный тест ниже).
+    const res = await app.fetch(new Request('http://localhost/health', {
+      headers: { 'Origin': 'http://localhost:5500' },
+    }));
     expect(res.headers.get('access-control-allow-origin')).toBe('*');
-    expect(res.headers.get('access-control-allow-headers')).toContain('Content-Type');
   });
 
-  it('OPTIONS preflight → 204 без тела', async () => {
-    const res = await app.fetch(new Request('http://localhost/auth/request', { method: 'OPTIONS' }));
+  it('OPTIONS preflight → 204 + allow-methods/headers/max-age', async () => {
+    const res = await app.fetch(new Request('http://localhost/auth/request', {
+      method: 'OPTIONS',
+      headers: {
+        'Origin': 'http://localhost:5500',
+        'Access-Control-Request-Method': 'POST',
+        'Access-Control-Request-Headers': 'content-type',
+      },
+    }));
     expect(res.status).toBe(204);
     expect((await res.text()).length).toBe(0);
+    expect(res.headers.get('access-control-allow-origin')).toBe('*');
+    expect(res.headers.get('access-control-allow-methods')).toContain('POST');
+    expect(res.headers.get('access-control-allow-headers')).toMatch(/content-type/i);
+    expect(res.headers.get('access-control-max-age')).toBe('86400');
   });
 });
 
