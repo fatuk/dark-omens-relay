@@ -1,5 +1,5 @@
 import { db, initDb } from '../src/shared/db.js';
-import { users, sessions, rooms, gameSessions, gamePlayers } from '../src/shared/schema.js';
+import { users, sessions, rooms, gameSessions, gamePlayers, campaigns } from '../src/shared/schema.js';
 import { getDevOtpLog } from '../src/api/mailer.js';
 
 let _initialized = false;
@@ -19,6 +19,7 @@ export function resetDb(): void {
   db.delete(rooms).run();
   db.delete(sessions).run();
   db.delete(users).run();
+  db.delete(campaigns).run();   // без FK — порядок не важен
   // Чистим in-memory лог OTP-кодов (mailer хранит последние 20 в массиве)
   getDevOtpLog().splice(0);
 }

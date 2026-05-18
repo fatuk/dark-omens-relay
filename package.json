@@ -8,6 +8,7 @@
     "dev:api": "tsx watch src/api/server.ts",
     "start": "tsx src/relay/server.ts",
     "start:api": "tsx src/api/server.ts",
+    "docker:dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up",
     "build": "tsc",
     "typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test": "vitest run",
@@ -15,6 +16,7 @@
     "prepare": "husky || true"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.96.0",
     "@hono/node-server": "^1.19.14",
     "@hono/zod-validator": "^0.7.6",
     "better-sqlite3": "^12.9.0",

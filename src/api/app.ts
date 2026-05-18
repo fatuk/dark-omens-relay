@@ -1,6 +1,8 @@
 import { Hono }          from 'hono';
 import { cors }          from 'hono/cors';
 import { auth }          from './auth.js';
+import { encounters }    from './encounters.js';
+import { campaign }      from './campaign.js';
 import { getDevOtpLog }  from './mailer.js';
 
 /**
@@ -28,6 +30,8 @@ export function buildApp(): Hono {
   }));
 
   app.route('/auth', auth);
+  app.route('/encounters', encounters);
+  app.route('/campaign', campaign);
 
   // ── DEV only — выводит выпущенные OTP-коды ─────────────────────────────────
   if (process.env['DEV_MODE'] === 'true' || process.env['NODE_ENV'] !== 'production') {

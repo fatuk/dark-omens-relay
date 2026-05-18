@@ -1,0 +1,43 @@
+# Dev-оверлей к docker-compose.yml.
+#
+# Запуск:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+#   (короче — `npm run docker:dev`)
+#
+# Отличия от прод-конфига:
+#   - образ собирается из стадии `dev` (там есть dev-зависимости, в т.ч. tsx);
+#   - каталог ./src примонтирован внутрь контейнера;
+#   - вместо `node dist/...` крутится `tsx watch` — правки в src/ подхватываются
+#     на лету, пересобирать образ НЕ нужно.
+#
+# Пересборка образа нужна только при изменении package.json (новые пакеты):
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+#
+# Примечание: правки в .env на лету НЕ подхватываются (переменные читаются при
+# создании контейнера) — после изменения .env перезапусти `up` заново.
+
+services:
+  relay:
+    build:
+      context: .
+      target: dev
+    image: dark-omens-relay:dev
+    command: npx tsx watch src/relay/server.ts
+    volumes:
+      - ./src:/app/src
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=DEBUG
+
+  api:
+    build:
+      context: .
+      target: dev
+    image: dark-omens-relay:dev
+    command: npx tsx watch src/api/server.ts
+    volumes:
+      - ./src:/app/src
+    environment:
+      - NODE_ENV=development
+      - LOG_LEVEL=DEBUG
+      - DEV_MODE=true

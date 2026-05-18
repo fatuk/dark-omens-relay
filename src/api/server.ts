@@ -1,3 +1,7 @@
+// ВАЖНО: первый импорт — подгружает .env в process.env до того, как остальные
+// модули прочитают переменные на этапе загрузки (mailer, anthropic).
+import '../shared/env.js';
+
 import { serve } from '@hono/node-server';
 
 import { initDb } from '../shared/db.js';
@@ -16,10 +20,11 @@ if (process.env['DEV_MODE'] === 'true' || process.env['NODE_ENV'] !== 'productio
 serve({ fetch: app.fetch, port: PORT }, (info) => {
   logger.info('dark-omens-api started', { port: info.port });
   logger.info('endpoints', {
-    health:       `http://localhost:${info.port}/health`,
-    auth_request: `http://localhost:${info.port}/auth/request`,
-    auth_verify:  `http://localhost:${info.port}/auth/verify`,
-    auth_me:      `http://localhost:${info.port}/auth/me`,
+    health:        `http://localhost:${info.port}/health`,
+    auth_request:  `http://localhost:${info.port}/auth/request`,
+    auth_verify:   `http://localhost:${info.port}/auth/verify`,
+    auth_me:       `http://localhost:${info.port}/auth/me`,
+    encounters:    `http://localhost:${info.port}/encounters/generate`,
   });
 });
 

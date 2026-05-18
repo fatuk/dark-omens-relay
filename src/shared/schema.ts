@@ -44,8 +44,20 @@ export const gamePlayers = sqliteTable('game_players', {
   ready:        integer('ready', { mode: 'boolean' }).notNull().default(false),
 });
 
+// ── Сгенерированные кампании ────────────────────────────────────────────────────
+// Сценарная библия (Древний, Мистерии, колода Мифов) — генерится один раз на
+// партию, хранится как JSON-блоб, достаётся по id для встреч и дебага.
+
+export const campaigns = sqliteTable('campaigns', {
+  id:        text('id').primaryKey(),
+  userId:    text('user_id').notNull(),
+  createdAt: integer('created_at').notNull(),
+  json:      text('json').notNull(),
+});
+
 export type User        = typeof users.$inferSelect;
 export type Session     = typeof sessions.$inferSelect;
 export type Room        = typeof rooms.$inferSelect;
 export type GameSession = typeof gameSessions.$inferSelect;
 export type GamePlayer  = typeof gamePlayers.$inferSelect;
+export type Campaign    = typeof campaigns.$inferSelect;

@@ -11,7 +11,25 @@ COPY src ./src
 
 RUN npm run build
 
+# ── Dev stage: для docker-compose.dev.yml ─────────────────────────────────────
+# Содержит ВСЕ зависимости (включая dev — tsx), но НЕ копирует src и не компилит:
+# код приходит из bind-mount, запускается через `tsx watch` с авто-перезагрузкой.
+FROM node:22-alpine AS dev
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci
+
+COPY tsconfig.json ./
+
+RUN mkdir -p /app/logs /app/data
+
+EXPOSE 3030 3031
+
 # ── Stage 2: production image ─────────────────────────────────────────────────
+# ВАЖНО: production — последняя стадия, чтобы `docker build` без --target
+# собирал именно её (а не dev).
 FROM node:22-alpine AS production
 
 WORKDIR /app

@@ -68,6 +68,13 @@ export function initDb(): void {
       PRIMARY KEY (room_id, user_id)
     );
 
+    CREATE TABLE IF NOT EXISTS campaigns (
+      id         TEXT PRIMARY KEY,
+      user_id    TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      json       TEXT NOT NULL
+    );
+
     CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
     CREATE INDEX IF NOT EXISTS idx_rooms_empty ON rooms(empty_at);
@@ -158,4 +165,25 @@ export function getGamePlayers(
     investigator: r.investigator,
     ready:        r.ready === 1,
   }));
+}
+
+
+// ── Сгенерированные кампании ────────────────────────────────────────────────────
+
+/** Сохранить сценарную библию (JSON-строка) под её id. */
+export function saveCampaign(id: string, userId: string, json: string): void {
+  sqlite.prepare(
+    `INSERT INTO campaigns (id, user_id, created_at, json) VALUES (?, ?, ?, ?)`
+  ).run(id, userId, Date.now(), json);
+}
+
+/** Достать сохранённую кампанию по id (null, если не найдена). */
+export function getCampaign(
+  id: string,
+): { id: string; userId: string; createdAt: number; json: string } | null {
+  const row = sqlite.prepare(
+    `SELECT id, user_id, created_at, json FROM campaigns WHERE id = ?`
+  ).get(id) as { id: string; user_id: string; created_at: number; json: string } | undefined;
+  if (!row) return null;
+  return { id: row.id, userId: row.user_id, createdAt: row.created_at, json: row.json };
 }

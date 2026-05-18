@@ -1,0 +1,331 @@
+{
+  "info": {
+    "_postman_id": "6b77c4bd-263d-4423-8d97-7c29bd08b6f1",
+    "name": "Dark Omens API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3031"
+    },
+    {
+      "key": "token",
+      "value": ""
+    },
+    {
+      "key": "campaignId",
+      "value": ""
+    }
+  ],
+  "item": [
+    {
+      "name": "0. Health",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/health",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "health"
+          ]
+        },
+        "auth": {
+          "type": "noauth"
+        }
+      }
+    },
+    {
+      "name": "1. Auth — Request OTP",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/auth/request",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "request"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"test@example.com\",\n  \"name\": \"Tester\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "noauth"
+        },
+        "description": "Шлёт OTP. В DEV-режиме код смотри в запросе 2 или в консоли сервера."
+      }
+    },
+    {
+      "name": "2. Auth — Get OTP (dev)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/dev/otp",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "dev",
+            "otp"
+          ]
+        },
+        "auth": {
+          "type": "noauth"
+        },
+        "description": "DEV-страница с выпущенными OTP-кодами. Возьми 6 цифр для запроса 3."
+      }
+    },
+    {
+      "name": "3. Auth — Verify",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/auth/verify",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "auth",
+            "verify"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"email\": \"test@example.com\",\n  \"code\": \"000000\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "auth": {
+          "type": "noauth"
+        },
+        "description": "Вставь code из запроса 2. При успехе token сохраняется в переменную коллекции."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "if (j && j.token) { pm.collectionVariables.set(\"token\", j.token); console.log(\"token saved\"); }"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Campaign — Generate",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/campaign/generate",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "campaign",
+            "generate"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"locations\": [\n    {\n      \"name\": \"Аркхэм\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Сан-Франциско\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Токио\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Иннсмут\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Тихоокеанская впадина\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Риф Дьявола\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Антарктическая пустошь\",\n      \"type\": \"wilderness\"\n    },\n    {\n      \"name\": \"Сибирская тайга\",\n      \"type\": \"wilderness\"\n    }\n  ],\n  \"ancientOne\": \"Ктулху\",\n  \"playerCount\": 2,\n  \"language\": \"Russian\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Генерит сценарную библию (~2 мин). campaignId сохраняется автоматически. ancientOne можно удалить — тогда Древнего придумает модель."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "if (j && j.campaign && j.campaign.id) {",
+              "  pm.collectionVariables.set(\"campaignId\", j.campaign.id);",
+              "  console.log(\"campaignId =\", j.campaign.id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Campaign — Get by id",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/campaign/{{campaignId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "campaign",
+            "{{campaignId}}"
+          ]
+        },
+        "description": "Достать сохранённую кампанию по id."
+      }
+    },
+    {
+      "name": "6. Campaign — Preview (debug)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/campaign/preview",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "campaign",
+            "preview"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"locations\": [\n    {\n      \"name\": \"Аркхэм\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Сан-Франциско\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Токио\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Иннсмут\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Тихоокеанская впадина\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Риф Дьявола\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Антарктическая пустошь\",\n      \"type\": \"wilderness\"\n    },\n    {\n      \"name\": \"Сибирская тайга\",\n      \"type\": \"wilderness\"\n    }\n  ],\n  \"playerCount\": 2,\n  \"encountersPerAct\": 1,\n  \"language\": \"Russian\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "ДЕБАГ: библия + по встрече на каждый акт, одним JSON (~2 мин)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "if (j && j.campaign && j.campaign.id) {",
+              "  pm.collectionVariables.set(\"campaignId\", j.campaign.id);",
+              "  console.log(\"campaignId =\", j.campaign.id);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "7. Encounters — Generate",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/encounters/generate",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "encounters",
+            "generate"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"investigator\": {\n    \"name\": \"Рекс Мёрфи\",\n    \"background\": \"репортёр из Аркхэма, гонится за сенсацией\"\n  },\n  \"realLocation\": {\n    \"name\": \"Иннсмут\",\n    \"locationType\": \"city\"\n  },\n  \"conditions\": [],\n  \"count\": 1,\n  \"language\": \"Russian\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Карточки встреч без кампании (самодостаточные)."
+      }
+    },
+    {
+      "name": "8. Encounters — Generate (with campaign)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/encounters/generate",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "encounters",
+            "generate"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"investigator\": {\n    \"name\": \"Рекс Мёрфи\",\n    \"background\": \"репортёр из Аркхэма, гонится за сенсацией\"\n  },\n  \"realLocation\": {\n    \"name\": \"Иннсмут\",\n    \"locationType\": \"city\"\n  },\n  \"conditions\": [],\n  \"count\": 1,\n  \"language\": \"Russian\",\n  \"campaignId\": \"{{campaignId}}\",\n  \"act\": 1,\n  \"doom\": 3\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Встреча против сценария: подставляется campaignId из запроса 4/6."
+      }
+    }
+  ]
+}
