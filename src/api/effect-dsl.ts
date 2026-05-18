@@ -24,7 +24,8 @@ export const ACTION_VERBS = [
   'gainClue', 'loseClue', 'spendClue',
   'gainAsset', 'loseAsset', 'gainSpell', 'loseSpell', 'gainArtifact',
   'improveSkill', 'impairSkill',
-  'move', 'becomeDelayed', 'gainImprovement',
+  'move', 'becomeDelayed',
+  'gainImprovement', 'loseImprovement', 'gainFocus', 'loseFocus',
   // по полю / партии
   'advanceDoom', 'advanceOmen', 'moveOmen',
   'openGate', 'closeGate', 'discardGate',
@@ -64,6 +65,7 @@ export const CONDITION_IDS = [
   'amnesia', 'detained', 'delayed', 'hypothermia', 'poisoned', 'hallucinations',
   'legInjury', 'internalInjury', 'backInjury', 'headInjury', 'haunted',
   'diseased', 'despair', 'righteous', 'lostInTimeAndSpace',
+  'funding', 'infection', 'hunger', 'hunted', 'agreement',
 ] as const;
 export type ConditionId = typeof CONDITION_IDS[number];
 
@@ -130,6 +132,7 @@ export const actionSchema = z.object({
   location:  z.string().optional(),          // placeRumor
   context:   z.string().optional(),          // напр. "combatEncounter" для пассивов
   text:      z.string().optional(),          // для do:"text"
+  optional:  z.boolean().optional(),         // «можете…» — эффект применяется по выбору игрока
 });
 export type Action = z.infer<typeof actionSchema>;
 
