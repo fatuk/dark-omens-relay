@@ -33,9 +33,17 @@ export function buildApp(): Hono {
   app.route('/encounters', encounters);
   app.route('/campaign', campaign);
 
-  // ── DEV only — выводит выпущенные OTP-коды ─────────────────────────────────
-  if (process.env['DEV_MODE'] === 'true' || process.env['NODE_ENV'] !== 'production') {
+  // ── Просмотрщик OTP-кодов ──────────────────────────────────────────────────
+  // Локально (NODE_ENV != production) открыт. На проде включается, только если
+  // задан OTP_DEBUG_KEY, и доступ тогда строго по ?key=<OTP_DEBUG_KEY> — нужно
+  // на время теста без верифицированного почтового домена.
+  const otpDebugKey = process.env['OTP_DEBUG_KEY'] ?? '';
+  const isProd      = process.env['NODE_ENV'] === 'production';
+  if (!isProd || otpDebugKey) {
     app.get('/dev/otp', (c) => {
+      if (isProd && c.req.query('key') !== otpDebugKey) {
+        return c.text('Forbidden', 403);
+      }
       const log = getDevOtpLog();
       return c.html(`<!DOCTYPE html>
 <html lang="ru">

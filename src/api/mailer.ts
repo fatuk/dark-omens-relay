@@ -26,11 +26,14 @@ export async function sendOtpEmail(to: string, code: string): Promise<void> {
     </div>
   `;
 
+  // Код всегда фиксируем в кольце последних 20 — для отладочного просмотра
+  // через /dev/otp (нужно тестировщикам, пока нет верифицированного домена).
+  _devOtpLog.unshift({ email: to, code, sentAt: new Date().toISOString() });
+  if (_devOtpLog.length > 20) _devOtpLog.pop();
+
   if (DEV_MODE || !resend) {
-    _devOtpLog.unshift({ email: to, code, sentAt: new Date().toISOString() });
-    if (_devOtpLog.length > 20) _devOtpLog.pop();   // храним только последние 20
     logger.info(`[DEV] OTP email → ${to}`, { code });
-    console.log(`\n📧  OTP для ${to}: ${code}   →   http://localhost:3031/dev/otp\n`);
+    console.log(`\n📧  OTP для ${to}: ${code}   →   /dev/otp\n`);
     return;
   }
 
