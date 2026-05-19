@@ -1,0 +1,43 @@
+# Render Blueprint — единый бэкенд Dark Omens (WS-relay + HTTP-API в одном
+# процессе, см. src/server.ts).
+#
+# Деплой:
+#   1. Запушить репозиторий с этим файлом на GitHub.
+#   2. На render.com → New → Blueprint → выбрать репозиторий.
+#   3. Render прочитает render.yaml и предложит задать секреты (sync: false).
+#
+# Почему один сервис, а не два: диск Render привязывается к одному сервису,
+# а relay и api делят один game.db (SQLite). Поэтому они объединены.
+services:
+  - type: web
+    name: dark-omens-backend
+    runtime: node
+    plan: starter            # диску нужен платный план — на free дисков нет
+    region: frankfurt
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/server.js
+    healthCheckPath: /health
+    disk:
+      name: data
+      mountPath: /data
+      sizeGB: 1
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: DB_PATH
+        value: /data/game.db
+      - key: LOG_DIR
+        value: /data/logs
+      - key: EMPTY_ROOM_TTL_MS
+        value: "604800000"     # 7 дней
+      # ── Секреты — задаются в дашборде Render, в репозиторий не попадают ──
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+      - key: ADMIN_KEY
+        sync: false
