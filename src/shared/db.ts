@@ -187,3 +187,32 @@ export function getCampaign(
   if (!row) return null;
   return { id: row.id, userId: row.user_id, createdAt: row.created_at, json: row.json };
 }
+
+/**
+ * Список всех кампаний — для админ-вида. Тяжёлый json-блоб не отдаём,
+ * только метаданные; title/ancientOne вынимаем из json через json_extract.
+ */
+export function listCampaigns(): {
+  id: string; userId: string; createdAt: number;
+  title: string | null; ancientOne: string | null;
+}[] {
+  const rows = sqlite.prepare(`
+    SELECT id, user_id, created_at,
+           json_extract(json, '$.title')           AS title,
+           json_extract(json, '$.ancientOne.name') AS ancient_one
+    FROM campaigns
+    ORDER BY created_at DESC
+  `).all() as {
+    id: string; user_id: string; created_at: number;
+    title: string | null; ancient_one: string | null;
+  }[];
+  return rows.map((r) => ({
+    id: r.id, userId: r.user_id, createdAt: r.created_at,
+    title: r.title, ancientOne: r.ancient_one,
+  }));
+}
+
+/** Удалить кампанию по id. Возвращает true, если строка была удалена. */
+export function deleteCampaign(id: string): boolean {
+  return sqlite.prepare(`DELETE FROM campaigns WHERE id = ?`).run(id).changes > 0;
+}

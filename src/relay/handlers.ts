@@ -127,7 +127,10 @@ export function handle(client: Client, msg: ClientMessage, ctx: HandlerContext):
 
       broadcastToRoom(room.id, {
         type: 'player_joined',
-        player: { id: client.id, name: client.name, ready: client.ready, investigator: client.investigator },
+        player: {
+          id: client.id, user_id: client.userId ?? '', name: client.name,
+          ready: client.ready, investigator: client.investigator,
+        },
       }, client.id);
 
       const freshRoom = getRoom(room.id)!;
@@ -262,7 +265,10 @@ export function leaveRoom(client: Client, ctx: HandlerContext): void {
     });
   }
 
-  broadcastToRoom(roomId, { type: 'player_left', player_id: client.id, new_host_id: newHostId });
+  broadcastToRoom(roomId, {
+    type: 'player_left', player_id: client.id, new_host_id: newHostId,
+    user_id: client.userId ?? '',
+  });
 }
 
 // ── helpers ──

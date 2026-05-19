@@ -4,7 +4,9 @@ import { z }          from 'zod';
 import { randomUUID } from 'crypto';
 import type Anthropic from '@anthropic-ai/sdk';
 
-import { getUserByToken, saveCampaign, getCampaign } from '../shared/db.js';
+import {
+  getUserByToken, saveCampaign, getCampaign, listCampaigns, deleteCampaign,
+} from '../shared/db.js';
 import { logger }         from '../shared/logger.js';
 import { getAnthropic, ANTHROPIC_MODEL } from './anthropic.js';
 import {
@@ -183,6 +185,17 @@ campaign.post('/preview', zValidator('json', previewSchema), async (c) => {
 });
 
 
+// GET /campaign  →  список всех кампаний (метаданные, без json-блоба)
+campaign.get('/', (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
+  const user  = token ? getUserByToken(token) : null;
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  const campaigns = listCampaigns();
+  return c.json({ ok: true, count: campaigns.length, campaigns });
+});
+
+
 // GET /campaign/:id  →  достать сохранённую сценарную библию
 campaign.get('/:id', (c) => {
   const token = c.req.header('Authorization')?.replace('Bearer ', '');
@@ -193,6 +206,20 @@ campaign.get('/:id', (c) => {
   if (!row) return c.json({ error: 'Кампания не найдена.' }, 404);
 
   return c.json({ ok: true, campaign: JSON.parse(row.json) });
+});
+
+
+// DELETE /campaign/:id  →  удалить сохранённую кампанию
+campaign.delete('/:id', (c) => {
+  const token = c.req.header('Authorization')?.replace('Bearer ', '');
+  const user  = token ? getUserByToken(token) : null;
+  if (!user) return c.json({ error: 'Unauthorized' }, 401);
+
+  const id = c.req.param('id');
+  if (!deleteCampaign(id)) return c.json({ error: 'Кампания не найдена.' }, 404);
+
+  logger.info('campaign deleted', { userId: user.id, id });
+  return c.json({ ok: true });
 });
 
 export { campaign };

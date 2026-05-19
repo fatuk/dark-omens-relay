@@ -109,6 +109,7 @@ export function checkPassword(room: Room, password: string): boolean {
 export function getPlayersList(roomId: string): PlayerInfo[] {
   return Array.from(getPlayers(roomId).values()).map(c => ({
     id:          c.id,
+    user_id:     c.userId ?? '',
     name:        c.name,
     ready:       c.ready,
     investigator: c.investigator,

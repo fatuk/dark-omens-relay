@@ -28,7 +28,8 @@ export interface RoomSummary {
 }
 
 export interface PlayerInfo {
-  id:          string;
+  id:          string;       // id соединения (меняется при каждом коннекте)
+  user_id:     string;       // стабильный id аккаунта — игровая идентичность
   name:        string;
   ready:       boolean;
   investigator: string;
@@ -57,7 +58,7 @@ export type ServerMessage =
   | { type: 'rooms_list';    rooms: RoomSummary[] }
   | { type: 'joined_room';   room_id: string; room_name: string; your_id: string; is_host: boolean; players: PlayerInfo[]; game_started: boolean; game_state: Record<string, unknown> | null }
   | { type: 'player_joined'; player: PlayerInfo }
-  | { type: 'player_left';   player_id: string; new_host_id: string | null }
+  | { type: 'player_left';   player_id: string; new_host_id: string | null; user_id: string }
   | { type: 'room_deleted';  room_id: string; reason: string }
   | { type: 'relay';         from_id: string; data: unknown }
   | { type: 'error';         message: string };

@@ -117,11 +117,11 @@ The user message states the encounter \`kind\` — write to it:
   campaign's current Mystery. On success it yields a clue or a lead the
   investigators can turn into Mystery progress; it carries the Ancient One's
   dread.
-- \`gate\` — an OTHER WORLD encounter: the investigator has stepped through a
-  Gate into an alien realm (\`otherWorld\`). The scene is NOT on Earth — it is
-  that realm. On success the investigator usually seals the way back: include
-  \`{ "do": "closeGate" }\` in onSuccess. Tone is the heaviest — alien geometry,
-  cosmic indifference, deep time; sanity is the usual coin of failure.
+- \`gate\` — an OTHER WORLD encounter, and it is TWO-STAGE. The investigator
+  has stepped through a Gate into an alien realm (\`otherWorld\`). The scene is
+  NOT on Earth — it is that realm. Tone is the heaviest — alien geometry,
+  cosmic indifference, deep time; sanity is the usual coin of failure. Gate
+  cards have their own shape — see "## Other World (gate) cards are two-stage".
 
 For \`kind: gate\`, \`otherWorld\` is one of these fixed realms — set the scene
 there and let its character bleed through:
@@ -133,6 +133,26 @@ there and let its character bleed through:
 - Lost Carcosa — the decadent dead city under twin suns and the Yellow Sign.
 - Great Hall of Celaeno — a library of knowledge stolen from dead stars.
 - The Past / The Future — a moment torn loose in time.
+
+## Other World (gate) cards are two-stage
+A \`gate\` card does NOT use the flat mainText/successText/failureText/test
+fields. It has a \`stages\` array of EXACTLY TWO stage objects; each stage has
+the same anatomy (mainText, successText, failureText, test, onSuccess,
+onFailure) as a normal card.
+
+- Stage 1 — arrival and ordeal. The investigator must endure / navigate /
+  survive the alien realm. On success they press on and Stage 2 follows —
+  Stage 1 \`onSuccess\` is usually empty or a small effect; do NOT close the
+  gate here. On failure the encounter ENDS at Stage 1: apply \`onFailure\`,
+  and the gate stays open.
+- Stage 2 — the way back. The investigator works the rite or finds the path
+  to seal the Gate. Stage 2 \`onSuccess\` MUST include { "do": "closeGate" }
+  together with the run's payoff (a clue, an artifact, a heal). On failure:
+  a cost, and the gate stays open.
+
+The two stages must be a real progression — different skills, or a rising
+stake — not the same test twice. \`general\` and \`research\` cards are
+single-stage and never use \`stages\`.
 
 ## Card anatomy
 Each card has three text fields plus mechanical effects:
@@ -147,6 +167,9 @@ Each card has three text fields plus mechanical effects:
    earned but not safe — partial victories, ambiguous gains, eerie aftertaste.
 3. \`failureText\` — 1–2 sentences. What happens on failure. Costly but not
    game-over. Often a condition, lost sanity, or a forced move.
+
+For \`general\` / \`research\` these three fields and \`test\` sit flat on the
+card. For \`gate\` they live inside each of the two \`stages\` instead.
 
 ## Skill checks
 \`test.skill\` is one of: lore, influence, observation, strength, will.
@@ -244,8 +267,9 @@ larger story, not a standalone vignette:
 When NO campaign context is given, the encounter is fully self-contained.
 
 ## Hard rules
-- Output language: ${language}. The \`name\` and all three text fields
-  (mainText, successText, failureText) must be written in ${language}.
+- Output language: ${language}. The \`name\` and every text field — flat
+  mainText/successText/failureText, or those inside each \`stages\` entry —
+  must be written in ${language}.
 - In effects, \`condition\` is an english id from the list above; the card
   PROSE uses the localized condition name — the engine maps id ↔ name.
 - Output format: a single tool call returning {"encounters": Encounter[]}.
@@ -303,18 +327,30 @@ Example 3 (general, sea, observation 0 — a choice):
   "onFailure": [ { "do": "gainCondition", "condition": "paranoia" } ]
 }
 
-Example 4 (gate — Other World, seals the gate):
+Example 4 (gate — Other World, TWO-STAGE: uses \`stages\`, not flat fields):
 {
   "name": "Колодец без дна",
-  "mainText": "Врата выводят вас не на земную твердь, а на узкий карниз над лишённым дна колодцем Бездны. Снизу поднимается дыхание, которое не воздух. Вы пытаетесь начертить замыкающий знак на кромке портала, пока тьма вас не заметила (lore -1).",
-  "successText": "Знак вспыхивает и гаснет; зев колодца смыкается. Врата закрыты.",
-  "failureText": "Бездна выдыхает вам в лицо. Возьмите состояние «Безумие».",
   "type": "encounter",
   "kind": "gate",
   "otherWorld": "The Abyss",
-  "test": { "skill": "lore", "modifier": -1 },
-  "onSuccess": [ { "do": "closeGate" } ],
-  "onFailure": [ { "do": "gainCondition", "condition": "madness" } ]
+  "stages": [
+    {
+      "mainText": "Врата выводят не на земную твердь, а на узкий карниз над лишённым дна колодцем Бездны. Камень крошится под ногой; снизу поднимается дыхание, которое не воздух. Вы прижимаетесь к стене, чтобы не сорваться вниз (strength -1).",
+      "successText": "Пальцы находят опору. Вы переводите дух — карниз ведёт дальше, к самой кромке портала.",
+      "failureText": "Камень уходит из-под ног. Потеряйте 2 здоровья; Врата остаются открытыми за вашей спиной.",
+      "test": { "skill": "strength", "modifier": -1 },
+      "onSuccess": [],
+      "onFailure": [ { "do": "loseHealth", "amount": 2 } ]
+    },
+    {
+      "mainText": "У самого зева колодца воздух дрожит знаками. Вы пытаетесь начертить замыкающий знак, пока тьма внизу вас не заметила (lore -1).",
+      "successText": "Знак вспыхивает и гаснет; зев колодца смыкается. Возьмите 1 улику. Врата закрыты.",
+      "failureText": "Бездна выдыхает вам в лицо. Возьмите состояние «Безумие»; Врата остаются открытыми.",
+      "test": { "skill": "lore", "modifier": -1 },
+      "onSuccess": [ { "do": "gainClue", "count": 1 }, { "do": "closeGate" } ],
+      "onFailure": [ { "do": "gainCondition", "condition": "madness" } ]
+    }
+  ]
 }
 `.trim();
 }
@@ -334,7 +370,9 @@ export function buildEncounterUserPrompt(input: EncounterPromptInput): string {
     placeBlock = `## Other World — the encounter is set HERE, beyond the gate\n- Realm: ${realm}`;
     placeRules =
       `- be set inside the Other World "${realm}", not on Earth\n` +
-      `- on success usually seal the gate — include { "do": "closeGate" } in onSuccess`;
+      `- be TWO-STAGE: fill the "stages" array with EXACTLY 2 stages; do NOT\n` +
+      `  use the flat mainText/successText/failureText/test fields\n` +
+      `- Stage 2 onSuccess must seal the gate — include { "do": "closeGate" }`;
   } else {
     const name = realLocation?.name ?? '?';
     const lt   = realLocation?.locationType ?? 'city';
@@ -381,7 +419,7 @@ Call the \`emit_encounters\` tool with a JSON object:
 { "encounters": Encounter[] }
 Each encounter must:
 - have \`kind\` = "${kind}"
-- be written entirely in ${language} (name, mainText, successText, failureText)
+- be written entirely in ${language}
 ${placeRules}
 - pick a skill check that fits the action described in mainText
 - set test.modifier from reward value + narrative (see "## Difficulty")
@@ -400,6 +438,17 @@ export function buildEncounterPrompt(input: EncounterPromptInput): { system: str
 // ── Tool use schema — модель обязана вернуть валидный JSON ─────────────────────
 // `id` модель НЕ генерирует: сервер проставляет uuid сам (см. encounters.ts).
 
+// Схема проверки навыка — переиспользуется на верхнем уровне (general/research)
+// и внутри каждой стадии двухступенчатой gate-встречи.
+const TEST_SCHEMA = {
+  type: 'object',
+  required: ['skill', 'modifier'],
+  properties: {
+    skill:    { type: 'string', enum: [...SKILL_NAMES] },
+    modifier: { type: 'integer', minimum: -3, maximum: 2 },
+  },
+};
+
 export const ENCOUNTER_TOOL: Anthropic.Tool = {
   name: 'emit_encounters',
   description: 'Emit one or more encounter cards.',
@@ -412,35 +461,50 @@ export const ENCOUNTER_TOOL: Anthropic.Tool = {
         minItems: 1,
         items: {
           type: 'object',
-          required: ['name', 'mainText', 'successText', 'failureText', 'type', 'kind'],
+          // general/research заполняют плоские mainText/.../test; gate
+          // заполняет stages[2]. Конкретную форму по kind задаёт промпт.
+          required: ['name', 'type', 'kind'],
           properties: {
             name:         { type: 'string' },
-            mainText:     { type: 'string' },
-            successText:  { type: 'string' },
-            failureText:  { type: 'string' },
             type:         { type: 'string', enum: ['encounter'] },
             kind:         { type: 'string', enum: [...ENCOUNTER_KINDS] },
             tags:         { type: 'array', items: { type: 'string', enum: [...TAGS] } },
             // locationType — для general/research; otherWorld — для gate.
             locationType: { type: 'string', enum: [...LOCATION_TYPES] },
             otherWorld:   { type: 'string', enum: [...OTHER_WORLDS] },
-            test: {
-              type: 'object',
-              required: ['skill', 'modifier'],
-              properties: {
-                skill:    { type: 'string', enum: [...SKILL_NAMES] },
-                modifier: { type: 'integer', minimum: -3, maximum: 2 },
-              },
+            // Одноступенчатая встреча (general/research) — плоские поля.
+            mainText:     { type: 'string' },
+            successText:  { type: 'string' },
+            failureText:  { type: 'string' },
+            test:         TEST_SCHEMA,
+            onSuccess:    { type: 'array', items: { $ref: EFFECT_REF } },
+            onFailure:    { type: 'array', items: { $ref: EFFECT_REF } },
+            // Двухступенчатая встреча (gate / Иной мир) — ровно 2 стадии.
+            stages: {
+              type: 'array',
+              minItems: 2,
+              maxItems: 2,
+              items: { $ref: '#/$defs/EncounterStage' },
             },
-            // Эффекты — программы Effect-DSL (узлы из $defs/Effect).
-            onSuccess: { type: 'array', items: { $ref: EFFECT_REF } },
-            onFailure: { type: 'array', items: { $ref: EFFECT_REF } },
           },
         },
       },
     },
     $defs: {
       [EFFECT_DEF_NAME]: effectJsonDef(),
+      // Одна стадия gate-встречи — та же анатомия, что у плоской карты.
+      EncounterStage: {
+        type: 'object',
+        required: ['mainText', 'successText', 'failureText', 'test'],
+        properties: {
+          mainText:    { type: 'string' },
+          successText: { type: 'string' },
+          failureText: { type: 'string' },
+          test:        TEST_SCHEMA,
+          onSuccess:   { type: 'array', items: { $ref: EFFECT_REF } },
+          onFailure:   { type: 'array', items: { $ref: EFFECT_REF } },
+        },
+      },
     },
   },
 };

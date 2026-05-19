@@ -173,14 +173,14 @@
         },
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"locations\": [\n    {\n      \"name\": \"Аркхэм\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Сан-Франциско\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Токио\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Иннсмут\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Тихоокеанская впадина\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Риф Дьявола\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Антарктическая пустошь\",\n      \"type\": \"wilderness\"\n    },\n    {\n      \"name\": \"Сибирская тайга\",\n      \"type\": \"wilderness\"\n    }\n  ],\n  \"ancientOne\": \"Ктулху\",\n  \"playerCount\": 2,\n  \"language\": \"Russian\"\n}",
+          "raw": "{\n  \"locations\": [\n    {\n      \"name\": \"Аркхэм\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Сан-Франциско\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Токио\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Иннсмут\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Тихоокеанская впадина\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Риф Дьявола\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Антарктическая пустошь\",\n      \"type\": \"wilderness\"\n    },\n    {\n      \"name\": \"Сибирская тайга\",\n      \"type\": \"wilderness\"\n    }\n  ],\n  \"ancientOne\": \"Ктулху\",\n  \"playerCount\": 2,\n  \"themeHint\": \"Культ Глубоководных готовит ритуал пробуждения, и прибрежные города один за другим погружаются в безумие.\",\n  \"language\": \"Russian\"\n}",
           "options": {
             "raw": {
               "language": "json"
             }
           }
         },
-        "description": "Генерит сценарную библию (~2 мин). campaignId сохраняется автоматически. ancientOne можно удалить — тогда Древнего придумает модель."
+        "description": "Генерит сценарную библию (~2 мин). campaignId сохраняется автоматически. Поля ancientOne и themeHint опциональны — удали их, и Древнего/тему придумает модель сама."
       },
       "event": [
         {
@@ -189,6 +189,12 @@
             "type": "text/javascript",
             "exec": [
               "const j = pm.response.json();",
+              "pm.test(\"status 200\", () => pm.response.code === 200);",
+              "pm.test(\"ok: true\", () => j.ok === true);",
+              "pm.test(\"campaign.id есть\", () => !!(j.campaign && j.campaign.id));",
+              "pm.test(\"ancientOne задан\", () => !!(j.campaign && j.campaign.ancientOne && j.campaign.ancientOne.name));",
+              "pm.test(\"mysteries[] непустой\", () => Array.isArray(j.campaign && j.campaign.mysteries) && j.campaign.mysteries.length > 0);",
+              "pm.test(\"mythosDeck[] непустой\", () => Array.isArray(j.campaign && j.campaign.mythosDeck) && j.campaign.mythosDeck.length > 0);",
               "if (j && j.campaign && j.campaign.id) {",
               "  pm.collectionVariables.set(\"campaignId\", j.campaign.id);",
               "  console.log(\"campaignId =\", j.campaign.id);",
@@ -213,8 +219,23 @@
             "{{campaignId}}"
           ]
         },
-        "description": "Достать сохранённую кампанию по id."
-      }
+        "description": "Достать сохранённую кампанию по id (из запроса 4 или 6)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "pm.test(\"status 200\", () => pm.response.code === 200);",
+              "pm.test(\"ok: true\", () => j.ok === true);",
+              "pm.test(\"кампания вернулась\", () => !!(j.campaign && j.campaign.id));",
+              "pm.test(\"id совпадает с campaignId\", () => j.campaign.id === pm.collectionVariables.get(\"campaignId\"));"
+            ]
+          }
+        }
+      ]
     },
     {
       "name": "6. Campaign — Preview (debug)",
@@ -238,14 +259,14 @@
         },
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"locations\": [\n    {\n      \"name\": \"Аркхэм\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Сан-Франциско\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Токио\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Иннсмут\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Тихоокеанская впадина\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Риф Дьявола\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Антарктическая пустошь\",\n      \"type\": \"wilderness\"\n    },\n    {\n      \"name\": \"Сибирская тайга\",\n      \"type\": \"wilderness\"\n    }\n  ],\n  \"playerCount\": 2,\n  \"encountersPerAct\": 1,\n  \"language\": \"Russian\"\n}",
+          "raw": "{\n  \"locations\": [\n    {\n      \"name\": \"Аркхэм\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Сан-Франциско\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Токио\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Иннсмут\",\n      \"type\": \"city\"\n    },\n    {\n      \"name\": \"Тихоокеанская впадина\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Риф Дьявола\",\n      \"type\": \"sea\"\n    },\n    {\n      \"name\": \"Антарктическая пустошь\",\n      \"type\": \"wilderness\"\n    },\n    {\n      \"name\": \"Сибирская тайга\",\n      \"type\": \"wilderness\"\n    }\n  ],\n  \"playerCount\": 2,\n  \"themeHint\": \"Культ Глубоководных готовит ритуал пробуждения, и прибрежные города один за другим погружаются в безумие.\",\n  \"encountersPerAct\": 1,\n  \"language\": \"Russian\"\n}",
           "options": {
             "raw": {
               "language": "json"
             }
           }
         },
-        "description": "ДЕБАГ: библия + по встрече на каждый акт, одним JSON (~2 мин)."
+        "description": "ДЕБАГ: библия + по encountersPerAct встреч на каждый из 3 актов, одним JSON (~2 мин)."
       },
       "event": [
         {
@@ -254,6 +275,11 @@
             "type": "text/javascript",
             "exec": [
               "const j = pm.response.json();",
+              "pm.test(\"status 200\", () => pm.response.code === 200);",
+              "pm.test(\"ok: true\", () => j.ok === true);",
+              "pm.test(\"campaign.id есть\", () => !!(j.campaign && j.campaign.id));",
+              "pm.test(\"preview = 3 акта\", () => Array.isArray(j.preview) && j.preview.length === 3);",
+              "pm.test(\"в каждом акте encounters[]\", () => Array.isArray(j.preview) && j.preview.every(p => Array.isArray(p.encounters)));",
               "if (j && j.campaign && j.campaign.id) {",
               "  pm.collectionVariables.set(\"campaignId\", j.campaign.id);",
               "  console.log(\"campaignId =\", j.campaign.id);",
@@ -317,15 +343,127 @@
         },
         "body": {
           "mode": "raw",
-          "raw": "{\n  \"investigator\": {\n    \"name\": \"Рекс Мёрфи\",\n    \"background\": \"репортёр из Аркхэма, гонится за сенсацией\"\n  },\n  \"realLocation\": {\n    \"name\": \"Иннсмут\",\n    \"locationType\": \"city\"\n  },\n  \"conditions\": [],\n  \"count\": 1,\n  \"language\": \"Russian\",\n  \"campaignId\": \"{{campaignId}}\",\n  \"act\": 1,\n  \"doom\": 3\n}",
+          "raw": "{\n  \"kind\": \"research\",\n  \"investigator\": {\n    \"name\": \"Рекс Мёрфи\",\n    \"background\": \"репортёр из Аркхэма, гонится за сенсацией\"\n  },\n  \"realLocation\": {\n    \"name\": \"Иннсмут\",\n    \"locationType\": \"city\"\n  },\n  \"conditions\": [],\n  \"count\": 1,\n  \"language\": \"Russian\",\n  \"campaignId\": \"{{campaignId}}\",\n  \"act\": 1,\n  \"doom\": 3\n}",
           "options": {
             "raw": {
               "language": "json"
             }
           }
         },
-        "description": "Встреча против сценария: подставляется campaignId из запроса 4/6."
+        "description": "Встреча-расследование против сценария: kind=research требует campaignId (подставляется из запроса 4/6)."
       }
+    },
+    {
+      "name": "9. Campaign — List (admin)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/campaign",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "campaign"
+          ]
+        },
+        "description": "Список всех сгенерированных кампаний: метаданные (id, userId, createdAt, title, ancientOne) без тяжёлого json-блоба. Скопируй нужный id в переменную campaignId, чтобы удалить его запросом 10."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "pm.test(\"status 200\", () => pm.response.code === 200);",
+              "pm.test(\"ok: true\", () => j.ok === true);",
+              "pm.test(\"campaigns[] есть\", () => Array.isArray(j.campaigns));",
+              "console.log(\"кампаний:\", j.count);",
+              "(j.campaigns || []).forEach(x => console.log(x.id, \"—\", x.title, \"/\", x.ancientOne));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "10. Campaign — Delete (admin)",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{baseUrl}}/campaign/{{campaignId}}",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "campaign",
+            "{{campaignId}}"
+          ]
+        },
+        "description": "Удаляет кампанию с id из переменной campaignId. Возьми нужный id из запроса 9 и впиши в переменную коллекции campaignId."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "pm.test(\"status 200\", () => pm.response.code === 200);",
+              "pm.test(\"ok: true\", () => j.ok === true);"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "11. Encounters — Gate (Other World)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
+        "url": {
+          "raw": "{{baseUrl}}/encounters/generate",
+          "host": [
+            "{{baseUrl}}"
+          ],
+          "path": [
+            "encounters",
+            "generate"
+          ]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"kind\": \"gate\",\n  \"investigator\": {\n    \"name\": \"Норман Уизерс\",\n    \"background\": \"астроном, читающий ночное небо как шифр\"\n  },\n  \"otherWorld\": \"Great Hall of Celaeno\",\n  \"conditions\": [],\n  \"count\": 1,\n  \"language\": \"Russian\"\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "description": "Встреча в Ином мире (kind=gate). Двухступенчатая — в ответе encounter.stages из 2 стадий; realLocation для gate не нужен."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const j = pm.response.json();",
+              "const e = (j.encounters || [])[0] || {};",
+              "pm.test(\"status 200\", () => pm.response.code === 200);",
+              "pm.test(\"kind = gate\", () => e.kind === \"gate\");",
+              "pm.test(\"двухступенчатая: stages[2]\", () => Array.isArray(e.stages) && e.stages.length === 2);",
+              "pm.test(\"stage 2 закрывает врата\", () => Array.isArray(e.stages) && !!e.stages[1] && JSON.stringify(e.stages[1].onSuccess || []).includes(\"closeGate\"));"
+            ]
+          }
+        }
+      ]
     }
   ]
 }
