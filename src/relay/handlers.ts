@@ -200,14 +200,27 @@ export function handle(client: Client, msg: ClientMessage, ctx: HandlerContext):
         const bytes = broadcastToRoom(client.roomId, payload);
         onRelayBroadcast(bytes);
       } else if (action === 'start_game') {
+        // Host-only: иначе любой в комнате может стартануть «сессию» —
+        // мусор в БД и phantom-start у всех клиентов.
         const room = getRoom(client.roomId);
-        if (room) startGameSession(room.id, room.hostId);
+        if (!room || room.hostId !== client.id) {
+          return sendError(client, 'Только хост может стартовать игру');
+        }
+        startGameSession(room.id, room.hostId);
         const payload: ServerMessage = { type: 'relay', from_id: client.id, data: msg.data };
         const bytes = broadcastToRoom(client.roomId, payload, client.id);
         onRelayBroadcast(bytes);
       } else if (action === 'game_sync') {
-        // Хост рассылает полный стейт — сохраняем снапшот в БД для
-        // восстановления, если все клиенты выйдут.
+        // Host-only: game_sync — авторитативный снапшот стейта. Если принимать
+        // от любого — не-хост перезапишет state у всех (включая БД-снапшот,
+        // из которого восстанавливается хост при rejoin'е).
+        const room = getRoom(client.roomId);
+        if (!room || room.hostId !== client.id) {
+          logger.warn('game_sync from non-host rejected', {
+            room_id: client.roomId, from: short(client.id), host: short(room?.hostId ?? ''),
+          });
+          break;
+        }
         saveGameSnapshot(client.roomId, JSON.stringify(relayData));
         const payload: ServerMessage = { type: 'relay', from_id: client.id, data: msg.data };
         const bytes = broadcastToRoom(client.roomId, payload, client.id);

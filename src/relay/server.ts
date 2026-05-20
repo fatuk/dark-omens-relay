@@ -46,7 +46,12 @@ const server = serve({ fetch: app.fetch, port: PORT }, (info) => {
 
 // ── WebSocket ─────────────────────────────────────────────────────────────────
 
-const wss = new WebSocketServer({ server: server as unknown as HttpServer });
+// maxPayload защищает от DoS «прислал 100 MB JSON». Наши сообщения — комнаты,
+// relay-снапшоты — укладываются в десятки KB. 64 KB с большим запасом.
+const wss = new WebSocketServer({
+  server:     server as unknown as HttpServer,
+  maxPayload: 64 * 1024,
+});
 
 wss.on('connection', (ws: WebSocket, req: IncomingMessage) => {
   const client: Client = {

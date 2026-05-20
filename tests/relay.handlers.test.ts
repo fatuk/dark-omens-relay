@@ -293,6 +293,61 @@ describe('relay → start_game', () => {
     const joined = lastMsg(late, 'joined_room') as { game_started: boolean };
     expect(joined.game_started).toBe(true);
   });
+
+  it('start_game от не-хоста — отклоняется, game_session не создаётся', () => {
+    const host = makeClient('host');
+    handle(host, { type: 'create_room', room_name: 'R' } as never, ctxOf(host));
+    const intruder = makeClient('intruder');
+    handle(intruder, { type: 'join_room', room_id: host.roomId! } as never, ctxOf(host, intruder));
+    intruder.outbox.length = 0;
+
+    handle(intruder, { type: 'relay', data: { action: 'start_game' } } as never, ctxOf(host, intruder));
+
+    expect(getGameSession(host.roomId!)).toBeNull();
+    expect(lastMsg(intruder, 'error')).toMatchObject({ message: expect.stringContaining('хост') });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('relay → game_sync (host-only)', () => {
+  it('game_sync от хоста — снапшот пишется в БД', async () => {
+    const { getGameSnapshot } = await import('../src/shared/db.js');
+    const host = makeClient('host');
+    handle(host, { type: 'create_room', room_name: 'R' } as never, ctxOf(host));
+    handle(host, { type: 'relay', data: { action: 'start_game' } } as never, ctxOf(host));
+
+    handle(host, {
+      type: 'relay',
+      data: { action: 'game_sync', round_num: 7, phase: 'action' },
+    } as never, ctxOf(host));
+
+    const snap = getGameSnapshot(host.roomId!);
+    expect(snap).not.toBeNull();
+    expect(JSON.parse(snap!)).toMatchObject({ action: 'game_sync', round_num: 7 });
+  });
+
+  it('game_sync от не-хоста — игнорируется (снапшот не перезаписывается)', async () => {
+    const { getGameSnapshot } = await import('../src/shared/db.js');
+    const host = makeClient('host');
+    handle(host, { type: 'create_room', room_name: 'R' } as never, ctxOf(host));
+    handle(host, { type: 'relay', data: { action: 'start_game' } } as never, ctxOf(host));
+    handle(host, {
+      type: 'relay',
+      data: { action: 'game_sync', round_num: 5, marker: 'legit' },
+    } as never, ctxOf(host));
+
+    const intruder = makeClient('intruder');
+    handle(intruder, { type: 'join_room', room_id: host.roomId! } as never, ctxOf(host, intruder));
+
+    handle(intruder, {
+      type: 'relay',
+      data: { action: 'game_sync', round_num: 999, marker: 'forged' },
+    } as never, ctxOf(host, intruder));
+
+    const snap = JSON.parse(getGameSnapshot(host.roomId!)!);
+    expect(snap.marker).toBe('legit');
+    expect(snap.round_num).toBe(5);
+  });
 });
 
 // ─────────────────────────────────────────────────────────────────────────────

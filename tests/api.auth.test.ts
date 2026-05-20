@@ -40,6 +40,15 @@ describe('POST /auth/request', () => {
     const res = await app.fetch(jsonReq('/auth/request', { email: 'not-an-email' }));
     expect(res.status).toBe(400);
   });
+
+  it('rate-limit: после 3 запросов на один email → 429', async () => {
+    for (let i = 0; i < 3; i++) {
+      const ok = await app.fetch(jsonReq('/auth/request', { email: 'spam@example.com' }));
+      expect(ok.status).toBe(200);
+    }
+    const fourth = await app.fetch(jsonReq('/auth/request', { email: 'spam@example.com' }));
+    expect(fourth.status).toBe(429);
+  });
 });
 
 describe('POST /auth/verify', () => {
