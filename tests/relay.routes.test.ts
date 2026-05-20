@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resetDb } from './helpers.js';
 import { buildApp } from '../src/relay/app.js';
-import { createRoom, markRoomEmpty, addPlayer } from '../src/relay/rooms.js';
+import {
+  createRoom, markRoomEmpty, addPlayer, pruneStaleRooms, getRoom,
+  EMPTY_ROOM_TTL_MS,
+} from '../src/relay/rooms.js';
 import { db } from '../src/shared/db.js';
-import { users } from '../src/shared/schema.js';
+import { users, rooms as roomsTable } from '../src/shared/schema.js';
+import { eq } from 'drizzle-orm';
 import { startGameSession, getGameSession } from '../src/shared/db.js';
 import type { Client } from '../src/shared/types.js';
 import { randomUUID } from 'crypto';
@@ -172,6 +176,38 @@ describe('CORS', () => {
   it('добавляет Access-Control-Allow-Origin:*', async () => {
     const res = await app.fetch(new Request('http://localhost/health'));
     expect(res.headers.get('access-control-allow-origin')).toBe('*');
+  });
+});
+
+describe('pruneStaleRooms', () => {
+  it('удаляет пустые комнаты старше EMPTY_ROOM_TTL_MS, оставляет активные и недавние', () => {
+    // Старая пустая — удалится
+    const stale = createRoom(fakeClient('h-stale'), 'old', '', 8);
+    markRoomEmpty(stale);
+    db.update(roomsTable)
+      .set({ emptyAt: Date.now() - EMPTY_ROOM_TTL_MS - 1000 })
+      .where(eq(roomsTable.id, stale.id))
+      .run();
+
+    // Свежая пустая (markRoomEmpty проставил emptyAt = now) — останется
+    const fresh = createRoom(fakeClient('h-fresh'), 'recent-empty', '', 8);
+    markRoomEmpty(fresh);
+
+    // Активная (emptyAt = null) — останется
+    const active = createRoom(fakeClient('h-active'), 'live', '', 8);
+
+    pruneStaleRooms();
+
+    expect(getRoom(stale.id)).toBeUndefined();
+    expect(getRoom(fresh.id)).not.toBeUndefined();
+    expect(getRoom(active.id)).not.toBeUndefined();
+  });
+
+  it('никогда не удаляет комнаты с emptyAt=null (active rooms)', () => {
+    // Без markRoomEmpty — emptyAt остаётся null.
+    const active = createRoom(fakeClient('h'), 'never-empty', '', 8);
+    pruneStaleRooms();
+    expect(getRoom(active.id)).not.toBeUndefined();
   });
 });
 

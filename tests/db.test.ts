@@ -3,6 +3,7 @@ import { resetDb } from './helpers.js';
 import {
   startGameSession, endGameSession, getGameSession,
   upsertGamePlayer, getGamePlayer, getGamePlayers,
+  saveCampaign, getCampaign, listCampaigns, deleteCampaign,
   db,
 } from '../src/shared/db.js';
 import { rooms } from '../src/shared/schema.js';
@@ -87,5 +88,68 @@ describe('game_players', () => {
     upsertGamePlayer(ROOM_ID, USER_B, 'Bob',   'Diana',  true);
     db.delete(rooms).run();
     expect(getGamePlayers(ROOM_ID)).toHaveLength(0);
+  });
+});
+
+describe('campaigns', () => {
+  beforeEach(() => { resetDb(); });
+
+  it('save → get возвращает сохранённое', () => {
+    const bible = { ancientOne: { name: 'Azathoth' }, mysteries: [] };
+    saveCampaign('camp-1', USER_A, JSON.stringify(bible));
+
+    const row = getCampaign('camp-1');
+    expect(row).not.toBeNull();
+    expect(row!.id).toBe('camp-1');
+    expect(row!.userId).toBe(USER_A);
+    expect(JSON.parse(row!.json)).toEqual(bible);
+    expect(row!.createdAt).toBeGreaterThan(0);
+  });
+
+  it('get несуществующей → null', () => {
+    expect(getCampaign('ghost')).toBeNull();
+  });
+
+  it('listCampaigns: метаданные, без json-блоба, отсортировано по createdAt DESC', async () => {
+    saveCampaign('c1', USER_A, JSON.stringify({ title: 'Old',    ancientOne: { name: 'Azathoth' } }));
+    // Без задержки createdAt у обоих может совпасть — listCampaigns тогда
+    // не гарантирует порядок. Спим 5 мс между вставками.
+    await new Promise(r => setTimeout(r, 5));
+    saveCampaign('c2', USER_B, JSON.stringify({ title: 'New',    ancientOne: { name: 'Cthulhu' } }));
+
+    const list = listCampaigns();
+    expect(list).toHaveLength(2);
+    expect(list[0]!.id).toBe('c2');   // DESC
+    expect(list[0]!.title).toBe('New');
+    expect(list[0]!.ancientOne).toBe('Cthulhu');
+    expect(list[0]!.userId).toBe(USER_B);
+    // json не отдаём — поля нет в shape
+    expect((list[0] as unknown as { json?: unknown }).json).toBeUndefined();
+  });
+
+  it('listCampaigns с null title/ancientOne (если их нет в json)', () => {
+    saveCampaign('minimal', USER_A, JSON.stringify({ mysteries: [] }));
+    const list = listCampaigns();
+    expect(list).toHaveLength(1);
+    expect(list[0]!.title).toBeNull();
+    expect(list[0]!.ancientOne).toBeNull();
+  });
+
+  it('deleteCampaign: true если строка была, false если нет', () => {
+    saveCampaign('to-delete', USER_A, '{}');
+    expect(deleteCampaign('to-delete')).toBe(true);
+    expect(getCampaign('to-delete')).toBeNull();
+    // Повторно — ничего удалять
+    expect(deleteCampaign('to-delete')).toBe(false);
+    expect(deleteCampaign('never-existed')).toBe(false);
+  });
+
+  it('saveCampaign дважды с одним id → throw (PK conflict)', () => {
+    saveCampaign('dup', USER_A, '{}');
+    // Поведение зафиксировано как throw — обнаружили бы баг, если бы это
+    // молча перезаписывалось без понимания владельца.
+    expect(() => saveCampaign('dup', USER_B, '{"owner":"b"}')).toThrow();
+    // Оригинальная запись жива и принадлежит USER_A.
+    expect(getCampaign('dup')!.userId).toBe(USER_A);
   });
 });
