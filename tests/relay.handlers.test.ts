@@ -185,6 +185,66 @@ describe('join_room', () => {
     expect(lastMsg(guest, 'error')).toMatchObject({ message: expect.stringContaining('пароль') });
   });
 
+  it('правильный пароль → joined_room', () => {
+    const host = makeClient('h');
+    handle(host, { type: 'create_room', room_name: 'R', password: 'secret' } as never, ctxOf(host));
+    const guest = makeClient('g');
+    handle(guest, { type: 'join_room', room_id: host.roomId!, password: 'secret' } as never, ctxOf(host, guest));
+    expect(guest.roomId).toBe(host.roomId);
+    expect(lastMsg(guest, 'joined_room')).toBeDefined();
+  });
+
+  it('заполненная комната → error', () => {
+    const host = makeClient('host');
+    handle(host, { type: 'create_room', room_name: 'R', max_players: 2 } as never, ctxOf(host));
+    const guest = makeClient('guest');
+    handle(guest, { type: 'join_room', room_id: host.roomId! } as never, ctxOf(host, guest));
+    const third = makeClient('third');
+    handle(third, { type: 'join_room', room_id: host.roomId! } as never, ctxOf(host, guest, third));
+    expect(third.roomId).toBeNull();
+    expect(lastMsg(third, 'error')).toMatchObject({ message: expect.stringContaining('заполнена') });
+  });
+
+  it('rejoin при сохранённом снапшоте — joined_room.game_state не null', () => {
+    const host = makeClient('host');
+    handle(host, { type: 'create_room', room_name: 'R' } as never, ctxOf(host));
+    handle(host, { type: 'relay', data: { action: 'start_game' } } as never, ctxOf(host));
+    handle(host, {
+      type: 'relay',
+      data: { action: 'game_sync', round_num: 3, phase: 'action', marker: 'snap' },
+    } as never, ctxOf(host));
+
+    const late = makeClient('late');
+    handle(late, { type: 'join_room', room_id: host.roomId! } as never, ctxOf(host, late));
+
+    const joined = lastMsg(late, 'joined_room') as {
+      game_started: boolean;
+      game_state: { round_num?: number; marker?: string } | null;
+    };
+    expect(joined.game_started).toBe(true);
+    expect(joined.game_state).not.toBeNull();
+    expect(joined.game_state!.round_num).toBe(3);
+    expect(joined.game_state!.marker).toBe('snap');
+  });
+
+  it('reactivation: новый join в пустую комнату делает игрока хостом и сбрасывает emptyAt', () => {
+    const founder = makeClient('founder');
+    handle(founder, { type: 'create_room', room_name: 'reactivate' } as never, ctxOf(founder));
+    const roomId = founder.roomId!;
+    leaveRoom(founder, ctxOf(founder));
+    expect(getRoom(roomId)?.emptyAt).not.toBeNull();
+
+    const reviver = makeClient('reviver');
+    handle(reviver, { type: 'join_room', room_id: roomId } as never, ctxOf(reviver));
+
+    expect(reviver.roomId).toBe(roomId);
+    const room = getRoom(roomId)!;
+    expect(room.emptyAt).toBeNull();
+    expect(room.hostId).toBe(reviver.id);   // первый входящий становится хостом
+    const joined = lastMsg(reviver, 'joined_room') as { is_host: boolean };
+    expect(joined.is_host).toBe(true);
+  });
+
   it('поздний игрок (нет записи в game_players) → investigator="", ready=false', () => {
     // Готовим started-сессию с одним игроком в БД
     const u1 = 'user-old';
@@ -433,5 +493,109 @@ describe('delete_room (host only)', () => {
     handle(guest, { type: 'delete_room' } as never, ctxOf(host, guest));
     expect(lastMsg(guest, 'error')).toMatchObject({ message: expect.stringContaining('хост') });
     expect(getRoom(host.roomId!)).not.toBeUndefined();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('list_rooms (msg)', () => {
+  it('возвращает rooms_list со всеми существующими комнатами', () => {
+    const h1 = makeClient('h1');
+    handle(h1, { type: 'create_room', room_name: 'A' } as never, ctxOf(h1));
+    const h2 = makeClient('h2');
+    handle(h2, { type: 'create_room', room_name: 'B' } as never, ctxOf(h2));
+
+    const observer = makeClient('obs');
+    handle(observer, { type: 'list_rooms' } as never, ctxOf(observer));
+
+    const msg = lastMsg(observer, 'rooms_list') as { rooms: { name: string }[] };
+    expect(msg.rooms.map(r => r.name).sort()).toEqual(['A', 'B']);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('leave_room (msg)', () => {
+  it('handle(leave_room) эквивалентно leaveRoom() — комната освобождается', () => {
+    const host  = makeClient('host');
+    handle(host, { type: 'create_room', room_name: 'R' } as never, ctxOf(host));
+    const guest = makeClient('guest');
+    handle(guest, { type: 'join_room', room_id: host.roomId! } as never, ctxOf(host, guest));
+    const roomId = host.roomId!;
+    host.outbox.length = 0;
+
+    handle(guest, { type: 'leave_room' } as never, ctxOf(host, guest));
+
+    expect(guest.roomId).toBeNull();
+    expect(getPlayerCount(roomId)).toBe(1);
+    // Хост получает player_left
+    expect(lastMsg(host, 'player_left')).toMatchObject({ player_id: guest.id });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('delete_any_room (списком из лобби)', () => {
+  it('требует userId (анонимам — error)', () => {
+    const host = makeClient('host', null);   // анонимный
+    handle(host, { type: 'create_room', room_name: 'A' } as never, ctxOf(host));
+    const otherRoom = makeClient('o', 'u-other');
+    handle(otherRoom, { type: 'create_room', room_name: 'B' } as never, ctxOf(otherRoom));
+    leaveRoom(otherRoom, ctxOf(otherRoom));   // B стала пустой
+
+    const anon = makeClient('anon', null);
+    handle(anon, { type: 'delete_any_room', room_id: otherRoom.roomId! } as never, ctxOf(anon));
+    expect(lastMsg(anon, 'error')).toMatchObject({ message: expect.stringContaining('авториз') });
+  });
+
+  it('удаляет пустую комнату', () => {
+    const founder = makeClient('f');
+    handle(founder, { type: 'create_room', room_name: 'A' } as never, ctxOf(founder));
+    const roomId = founder.roomId!;
+    leaveRoom(founder, ctxOf(founder));
+    expect(getRoom(roomId)?.emptyAt).not.toBeNull();
+
+    const cleaner = makeClient('c', 'u-cleaner');
+    handle(cleaner, { type: 'delete_any_room', room_id: roomId } as never, ctxOf(cleaner));
+
+    expect(getRoom(roomId)).toBeUndefined();
+  });
+
+  it('не пустая комната → error', () => {
+    const host = makeClient('h');
+    handle(host, { type: 'create_room', room_name: 'A' } as never, ctxOf(host));
+    const roomId = host.roomId!;
+
+    const cleaner = makeClient('c', 'u-cleaner');
+    handle(cleaner, { type: 'delete_any_room', room_id: roomId } as never, ctxOf(host, cleaner));
+
+    expect(lastMsg(cleaner, 'error')).toMatchObject({ message: expect.stringContaining('не пуста') });
+    expect(getRoom(roomId)).not.toBeUndefined();
+  });
+
+  it('несуществующая комната → error', () => {
+    const cleaner = makeClient('c', 'u-cleaner');
+    handle(cleaner, { type: 'delete_any_room', room_id: 'no-such' } as never, ctxOf(cleaner));
+    expect(lastMsg(cleaner, 'error')).toMatchObject({ message: expect.stringContaining('не найдена') });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+describe('relay → generic (без специального action)', () => {
+  it('произвольное сообщение шлётся всем в комнате, кроме отправителя', () => {
+    const host  = makeClient('host');
+    handle(host, { type: 'create_room', room_name: 'R' } as never, ctxOf(host));
+    const a = makeClient('a');
+    const b = makeClient('b');
+    handle(a, { type: 'join_room', room_id: host.roomId! } as never, ctxOf(host, a, b));
+    handle(b, { type: 'join_room', room_id: host.roomId! } as never, ctxOf(host, a, b));
+    host.outbox.length = 0; a.outbox.length = 0; b.outbox.length = 0;
+
+    handle(host, {
+      type: 'relay',
+      data: { action: 'chat', text: 'hello' },
+    } as never, ctxOf(host, a, b));
+
+    expect(lastMsg(a, 'relay')).toMatchObject({ from_id: host.id, data: { action: 'chat', text: 'hello' } });
+    expect(lastMsg(b, 'relay')).toMatchObject({ from_id: host.id });
+    // Отправитель НЕ получает свой generic-relay (excludeId).
+    expect(lastMsg(host, 'relay')).toBeUndefined();
   });
 });
