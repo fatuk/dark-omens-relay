@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeEach } from 'vitest';
+import { eq } from 'drizzle-orm';
 import { resetDb } from './helpers.js';
 import { buildApp } from '../src/api/app.js';
 import { getDevOtpLog } from '../src/api/mailer.js';
+import { db, hashToken } from '../src/shared/db.js';
+import { sessions } from '../src/shared/schema.js';
 
 const app = buildApp();
 
@@ -101,6 +104,17 @@ describe('POST /auth/verify', () => {
 
     expect(userId2).toBe(userId1);
   });
+
+  it('enumeration regression: known/unknown email с неверным кодом возвращают одинаковый ответ', async () => {
+    // Известный email — у него запрашивали OTP, но мы шлём неверный код.
+    await getOtpFor('known@example.com');
+    const r1 = await app.fetch(jsonReq('/auth/verify', { email: 'known@example.com', code: '000000' }));
+    // Неизвестный email — OTP вообще не запрашивался.
+    const r2 = await app.fetch(jsonReq('/auth/verify', { email: 'unknown@example.com', code: '000000' }));
+
+    expect(r1.status).toBe(r2.status);
+    expect(await r1.json()).toEqual(await r2.json());
+  });
 });
 
 describe('GET /auth/me', () => {
@@ -143,11 +157,91 @@ describe('GET /auth/me', () => {
     }));
     expect(me.status).toBe(401);
   });
+
+  it('просроченная сессия → 401', async () => {
+    const token = await login('alice@example.com');
+    // Двигаем expiresAt в прошлое прямо в БД — обход 30-дневного TTL.
+    db.update(sessions)
+      .set({ expiresAt: Date.now() - 1000 })
+      .where(eq(sessions.tokenHash, hashToken(token)))
+      .run();
+
+    const me = await app.fetch(new Request('http://localhost/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    }));
+    expect(me.status).toBe(401);
+  });
+
+  it('rolling renewal: <15 дней до истечения → expiresAt продляется', async () => {
+    const token = await login('alice@example.com');
+    const hash  = hashToken(token);
+    // Ставим expiresAt = now + 1 день: должно сработать продление до now + 30 дней.
+    const oneDay = 86_400_000;
+    db.update(sessions)
+      .set({ expiresAt: Date.now() + oneDay })
+      .where(eq(sessions.tokenHash, hash))
+      .run();
+
+    const before = Date.now();
+    const me = await app.fetch(new Request('http://localhost/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    }));
+    expect(me.status).toBe(200);
+
+    const row = db.select().from(sessions).where(eq(sessions.tokenHash, hash)).get()!;
+    // 29 дней — нижняя граница, защита от drift между вызовами.
+    expect(row.expiresAt).toBeGreaterThan(before + 29 * oneDay);
+  });
+
+  it('rolling renewal НЕ срабатывает если >15 дней до истечения', async () => {
+    const token = await login('alice@example.com');
+    const hash  = hashToken(token);
+    // Свежая сессия — ровно 30 дней TTL, проверяем что повторный /me её
+    // не дёргает (иначе DoS на БД: каждый запрос → UPDATE).
+    const rowBefore = db.select().from(sessions).where(eq(sessions.tokenHash, hash)).get()!;
+
+    const me = await app.fetch(new Request('http://localhost/auth/me', {
+      headers: { Authorization: `Bearer ${token}` },
+    }));
+    expect(me.status).toBe(200);
+
+    const rowAfter = db.select().from(sessions).where(eq(sessions.tokenHash, hash)).get()!;
+    expect(rowAfter.expiresAt).toBe(rowBefore.expiresAt);
+  });
 });
 
 describe('POST /auth/logout', () => {
   it('без токена → всё равно 200 (best-effort)', async () => {
     const res = await app.fetch(new Request('http://localhost/auth/logout', { method: 'POST' }));
     expect(res.status).toBe(200);
+  });
+
+  it('удаляет ТОЛЬКО свою сессию, чужие остаются', async () => {
+    // login() inlined — этот блок выше его не видит (другой describe).
+    async function login(email: string): Promise<string> {
+      const code = await getOtpFor(email);
+      const res  = await app.fetch(jsonReq('/auth/verify', { email, code }));
+      return (await res.json() as { token: string }).token;
+    }
+    const tokenA = await login('a@example.com');
+    const tokenB = await login('b@example.com');
+
+    const out = await app.fetch(new Request('http://localhost/auth/logout', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${tokenA}` },
+    }));
+    expect(out.status).toBe(200);
+
+    // A инвалидирован
+    const meA = await app.fetch(new Request('http://localhost/auth/me', {
+      headers: { Authorization: `Bearer ${tokenA}` },
+    }));
+    expect(meA.status).toBe(401);
+
+    // B жив
+    const meB = await app.fetch(new Request('http://localhost/auth/me', {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    }));
+    expect(meB.status).toBe(200);
   });
 });
