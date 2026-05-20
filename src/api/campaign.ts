@@ -8,7 +8,15 @@ import {
   getUserByToken, saveCampaign, getCampaign, listCampaigns, deleteCampaign,
 } from '../shared/db.js';
 import { logger }         from '../shared/logger.js';
+import { bumpRate, clientIp } from '../shared/rate-limit.js';
 import { getAnthropic, ANTHROPIC_MODEL } from './anthropic.js';
+
+// Rate-limit на LLM-эндпоинты. Кампания — тяжёлый запрос (до 16k токенов),
+// генерится один раз на партию + изредка перегенерируется. /preview ещё
+// дороже (библия + встречи параллельно).
+const CAMPAIGN_PER_USER_HOUR = 10;
+const CAMPAIGN_PER_IP_HOUR   = 20;
+const HOUR_MS = 60 * 60 * 1000;
 import {
   buildCampaignPrompt, CAMPAIGN_TOOL, DEFAULT_LANGUAGE, DEFAULT_PLAYER_COUNT,
   type CampaignPromptInput,
@@ -97,6 +105,15 @@ campaign.post('/generate', zValidator('json', generateSchema), async (c) => {
   const user  = token ? getUserByToken(token) : null;
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
+  // Rate-limit: кампания дорогая (~16k токенов), своими руками легко слить квоту.
+  const ip = clientIp({ get: (n) => c.req.header(n) });
+  const userOk = bumpRate('camp-user', user.id, CAMPAIGN_PER_USER_HOUR, HOUR_MS);
+  const ipOk   = bumpRate('camp-ip',   ip,      CAMPAIGN_PER_IP_HOUR,  HOUR_MS);
+  if (!userOk || !ipOk) {
+    logger.warn('campaign rate-limited', { userId: user.id, ip, userOk, ipOk });
+    return c.json({ error: 'Слишком много запросов. Попробуйте позже.' }, 429);
+  }
+
   const client = getAnthropic();
   if (!client) {
     logger.error('campaign generation requested, but ANTHROPIC_API_KEY is not set');
@@ -107,7 +124,8 @@ campaign.post('/generate', zValidator('json', generateSchema), async (c) => {
   try {
     result = await generateCampaignBible(client, c.req.valid('json'));
   } catch (err) {
-    logger.error('campaign generation failed', { err: String(err) });
+    // err.message — без headers/body, чтобы не утянуть фрагмент API-key.
+    logger.error('campaign generation failed', { err: (err as Error).message });
     return c.json({ error: 'Сервис генерации временно недоступен.' }, 502);
   }
 
@@ -128,6 +146,16 @@ campaign.post('/preview', zValidator('json', previewSchema), async (c) => {
   const user  = token ? getUserByToken(token) : null;
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
+  // /preview генерит библию + N встреч параллельно — самый дорогой эндпоинт.
+  // Считаем в тот же scope, что и /generate.
+  const ip = clientIp({ get: (n) => c.req.header(n) });
+  const userOk = bumpRate('camp-user', user.id, CAMPAIGN_PER_USER_HOUR, HOUR_MS);
+  const ipOk   = bumpRate('camp-ip',   ip,      CAMPAIGN_PER_IP_HOUR,  HOUR_MS);
+  if (!userOk || !ipOk) {
+    logger.warn('campaign preview rate-limited', { userId: user.id, ip, userOk, ipOk });
+    return c.json({ error: 'Слишком много запросов. Попробуйте позже.' }, 429);
+  }
+
   const client = getAnthropic();
   if (!client) {
     logger.error('campaign preview requested, but ANTHROPIC_API_KEY is not set');
@@ -140,7 +168,7 @@ campaign.post('/preview', zValidator('json', previewSchema), async (c) => {
   try {
     bible = await generateCampaignBible(client, input);
   } catch (err) {
-    logger.error('campaign preview: bible generation failed', { err: String(err) });
+    logger.error('campaign preview: bible generation failed', { err: (err as Error).message });
     return c.json({ error: 'Сервис генерации временно недоступен.' }, 502);
   }
   saveCampaign(String(bible['id']), user.id, JSON.stringify(bible));
@@ -169,7 +197,7 @@ campaign.post('/preview', zValidator('json', previewSchema), async (c) => {
       const cards = await generateEncounterCards(client, promptInput);
       return { act, location: kl.location, encounters: cards };
     } catch (err) {
-      logger.error('campaign preview: encounter generation failed', { act, err: String(err) });
+      logger.error('campaign preview: encounter generation failed', { act, err: (err as Error).message });
       return { act, location: kl.location, encounters: [] as Record<string, unknown>[] };
     }
   });

@@ -41,7 +41,12 @@ RUN npm ci --omit=dev
 # Compiled JS
 COPY --from=builder /app/dist ./dist
 
-# Persistent data dirs (will be mounted as volumes)
-RUN mkdir -p /app/logs /app/data
+# Persistent data dirs (will be mounted as volumes). Делает их writable
+# для встроенного в base-image юзера `node` (uid=1000) — иначе процесс под
+# не-root не сможет создать логи / открыть SQLite в volume.
+RUN mkdir -p /app/logs /app/data && chown -R node:node /app
+
+# Запускаем не от root — стандартный hygiene для контейнеров.
+USER node
 
 EXPOSE 3030 3031

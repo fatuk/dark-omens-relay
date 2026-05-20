@@ -7,6 +7,7 @@ import { eq, lt, and, gt } from 'drizzle-orm';
 import { db }        from '../shared/db.js';
 import { users, sessions } from '../shared/schema.js';
 import { logger }    from '../shared/logger.js';
+import { bumpRate, clientIp, __resetRateLimitForTests } from '../shared/rate-limit.js';
 import { sendOtpEmail } from './mailer.js';
 
 // ── OTP-хранилище (in-memory, достаточно для MVP) ──────────────────────────────
@@ -24,50 +25,29 @@ const OTP_TTL_MS    = 15 * 60 * 1000;           // 15 минут
 const OTP_MAX_TRIES = 5;
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 дней
 
-// ── Rate-limit на /auth/request ────────────────────────────────────────────────
-// In-memory счётчик по email и IP. Окно 10 минут. Защита от:
-//   - спама в почтовый ящик жертвы (письма стоят денег и портят репутацию)
-//   - перевыпуска OTP в обход 5-попытки лимита на /verify (новый код сбрасывает
-//     attempts), фактически давая злоумышленнику неограниченное число попыток
-//     подобрать 6-значный код в ширину.
-// На /verify лимит уже есть (OTP_MAX_TRIES внутри OtpEntry).
-interface RateEntry { count: number; resetAt: number; }
-const requestRate = new Map<string, RateEntry>();
-const RATE_WINDOW_MS    = 10 * 60 * 1000;
-const RATE_MAX_PER_EMAIL = 3;
-const RATE_MAX_PER_IP    = 10;
+// Rate-limit для /auth/request — общий движок из shared/rate-limit.
+// Защита от: спама в почтовый ящик жертвы (письма стоят денег) и от
+// перевыпуска OTP в обход 5-попыток лимита на /verify (новый код сбрасывает
+// attempts → фактически безлимитный подбор кода в ширину).
+const AUTH_RATE_WINDOW_MS   = 10 * 60 * 1000;
+const AUTH_MAX_PER_EMAIL    = 3;
+const AUTH_MAX_PER_IP       = 10;
 
-// Чистим просроченные OTP и rate-counters раз в 5 минут.
+// Чистим просроченные OTP раз в 5 минут (rate-store чистится в shared/rate-limit).
 setInterval(() => {
   const now = Date.now();
   for (const [email, entry] of otpStore) {
     if (entry.expiresAt < now) otpStore.delete(email);
   }
-  for (const [k, v] of requestRate) {
-    if (v.resetAt < now) requestRate.delete(k);
-  }
 }, 5 * 60 * 1000);
 
 /**
- * Сбрасывает все rate-counters и OTP-store. Только для тестов — общий процесс
+ * Сбрасывает OTP-store и все rate-counters. Только для тестов — общий процесс
  * vitest накапливает счётчики между describe-блоками и упирается в лимит.
  */
 export function __resetAuthStateForTests(): void {
   otpStore.clear();
-  requestRate.clear();
-}
-
-/** Учитывает попытку. true — разрешено, false — лимит исчерпан. */
-function bumpRate(key: string, limit: number): boolean {
-  const now   = Date.now();
-  const entry = requestRate.get(key);
-  if (!entry || entry.resetAt < now) {
-    requestRate.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return true;
-  }
-  if (entry.count >= limit) return false;
-  entry.count++;
-  return true;
+  __resetRateLimitForTests();
 }
 
 // ── Роуты ──────────────────────────────────────────────────────────────────────
@@ -86,11 +66,9 @@ auth.post('/request', zValidator('json', z.object({
   // Rate-limit: атакующий иначе перевыпускает OTP бесконечно и подбирает
   // в ширину (новый код стирает attempts). Лимит per-email защищает почтовый
   // ящик жертвы, per-IP — общую пропускную способность.
-  const ip = c.req.header('x-forwarded-for')?.split(',')[0]?.trim()
-          ?? c.req.header('x-real-ip')
-          ?? 'unknown';
-  const emailOk = bumpRate(`email:${normalEmail}`, RATE_MAX_PER_EMAIL);
-  const ipOk    = bumpRate(`ip:${ip}`,             RATE_MAX_PER_IP);
+  const ip = clientIp({ get: (n) => c.req.header(n) });
+  const emailOk = bumpRate('auth-req-email', normalEmail, AUTH_MAX_PER_EMAIL, AUTH_RATE_WINDOW_MS);
+  const ipOk    = bumpRate('auth-req-ip',    ip,          AUTH_MAX_PER_IP,    AUTH_RATE_WINDOW_MS);
   if (!emailOk || !ipOk) {
     logger.warn('OTP request rate-limited', { email: normalEmail, ip, emailOk, ipOk });
     return c.json({ error: 'Слишком много запросов. Попробуйте позже.' }, 429);
@@ -104,7 +82,7 @@ auth.post('/request', zValidator('json', z.object({
   try {
     await sendOtpEmail(normalEmail, code);
   } catch (err) {
-    logger.error('Failed to send OTP email', { email: normalEmail, err: String(err) });
+    logger.error('Failed to send OTP email', { email: normalEmail, err: (err as Error).message });
     return c.json({ error: 'Не удалось отправить письмо. Попробуйте позже.' }, 500);
   }
 

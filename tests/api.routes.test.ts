@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resetDb } from './helpers.js';
 import { buildApp } from '../src/api/app.js';
+import { db } from '../src/shared/db.js';
+import { users, sessions } from '../src/shared/schema.js';
 
 const app = buildApp();
 
@@ -42,6 +44,40 @@ describe('CORS middleware', () => {
     expect(res.headers.get('access-control-allow-methods')).toContain('POST');
     expect(res.headers.get('access-control-allow-headers')).toMatch(/content-type/i);
     expect(res.headers.get('access-control-max-age')).toBe('86400');
+  });
+});
+
+describe('LLM rate-limit', () => {
+  // Создаём валидную сессию руками, без OTP-flow (он rate-limit'нет /auth/request).
+  function login(): string {
+    const userId = 'test-user';
+    const token  = 'test-token-' + Math.random().toString(36).slice(2);
+    const now    = Date.now();
+    db.insert(users).values({ id: userId, email: `${userId}@x.com`, name: 'T', createdAt: now }).run();
+    db.insert(sessions).values({ token, userId, createdAt: now, expiresAt: now + 86400_000 }).run();
+    return token;
+  }
+
+  async function generateCampaign(token: string): Promise<Response> {
+    return await app.fetch(new Request('http://localhost/campaign/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ locations: [{ name: 'Arkham', type: 'city' }] }),
+    }));
+  }
+
+  it('после 10 запросов на /campaign/generate один user → 429', async () => {
+    const token = login();
+    // Первые 10 пройдут через rate-limit; реальный LLM-вызов завернётся
+    // в 503 (ANTHROPIC_API_KEY не задан в тестах), но счётчик инкрементится
+    // ДО getAnthropic — это и нужно.
+    for (let i = 0; i < 10; i++) {
+      const res = await generateCampaign(token);
+      // 503 'не настроен' — нормально, 429 ещё не должно быть.
+      expect(res.status).not.toBe(429);
+    }
+    const blocked = await generateCampaign(token);
+    expect(blocked.status).toBe(429);
   });
 });
 

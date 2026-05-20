@@ -6,7 +6,15 @@ import type Anthropic from '@anthropic-ai/sdk';
 
 import { getUserByToken, getCampaign } from '../shared/db.js';
 import { logger }         from '../shared/logger.js';
+import { bumpRate, clientIp } from '../shared/rate-limit.js';
 import { getAnthropic, ANTHROPIC_MODEL } from './anthropic.js';
+
+// Rate-limit на LLM-эндпоинты. Один вызов encounter ≈ 4k токенов, кампания
+// до 16k — авторизованный юзер может незаметно сжечь квоту Anthropic.
+// Encounter генерится 30–40 раз за партию, поэтому лимит сравнительно высокий.
+const ENCOUNTER_PER_USER_HOUR = 60;
+const ENCOUNTER_PER_IP_HOUR   = 120;
+const HOUR_MS = 60 * 60 * 1000;
 import {
   buildEncounterPrompt, ENCOUNTER_TOOL, DEFAULT_LANGUAGE,
   LOCATION_TYPES, CONDITIONS, ENCOUNTER_KINDS, OTHER_WORLDS,
@@ -123,6 +131,15 @@ encounters.post('/generate', zValidator('json', requestSchema), async (c) => {
   const user  = token ? getUserByToken(token) : null;
   if (!user) return c.json({ error: 'Unauthorized' }, 401);
 
+  // Rate-limit: защита от своих же юзеров и угнанных токенов.
+  const ip = clientIp({ get: (n) => c.req.header(n) });
+  const userOk = bumpRate('enc-user', user.id, ENCOUNTER_PER_USER_HOUR, HOUR_MS);
+  const ipOk   = bumpRate('enc-ip',   ip,      ENCOUNTER_PER_IP_HOUR,  HOUR_MS);
+  if (!userOk || !ipOk) {
+    logger.warn('encounter rate-limited', { userId: user.id, ip, userOk, ipOk });
+    return c.json({ error: 'Слишком много запросов. Попробуйте позже.' }, 429);
+  }
+
   const client = getAnthropic();
   if (!client) {
     logger.error('encounter generation requested, but ANTHROPIC_API_KEY is not set');
@@ -157,7 +174,9 @@ encounters.post('/generate', zValidator('json', requestSchema), async (c) => {
   try {
     cards = await generateEncounterCards(client, promptInput);
   } catch (err) {
-    logger.error('encounter generation failed', { err: String(err) });
+    // err.message — без headers/response-body Anthropic SDK, которые могут
+    // содержать echo'нутые фрагменты API-key. String(err) выводит полный объект.
+    logger.error('encounter generation failed', { err: (err as Error).message });
     return c.json({ error: 'Сервис генерации временно недоступен.' }, 502);
   }
   if (cards.length === 0) {
