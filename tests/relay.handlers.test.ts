@@ -1,53 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { randomUUID } from 'crypto';
-import { resetDb } from './helpers.js';
-import { handle, leaveRoom, type HandlerContext } from '../src/relay/handlers.js';
+import { resetDb, makeClient, ctxOf, lastMsg, type TestClient } from './helpers.js';
+import { handle, leaveRoom } from '../src/relay/handlers.js';
 import { listRooms, getRoom, getPlayerCount } from '../src/relay/rooms.js';
 import { getGameSession, getGamePlayer, db, hashToken } from '../src/shared/db.js';
 import { users, sessions } from '../src/shared/schema.js';
-import type { Client, ServerMessage } from '../src/shared/types.js';
-
-// ── Тестовый клиент: фейковый ws, копит исходящие сообщения в массив ─────────
-interface TestClient extends Client {
-  outbox: ServerMessage[];
-  closed: boolean;
-}
-
-function makeClient(name = 'tester', userId: string | null = null): TestClient {
-  const outbox: ServerMessage[] = [];
-  const c: TestClient = {
-    id:           randomUUID(),
-    name,
-    // OPEN=1, чтобы send() реально вызывал ws.send и мы могли его перехватить
-    ws: {
-      readyState: 1,
-      send:      (data: string) => { outbox.push(JSON.parse(data) as ServerMessage); },
-      close:     () => { c.closed = true; },
-      terminate: () => { c.closed = true; },
-      ping:      () => {},
-    } as unknown as Client['ws'],
-    roomId:       null,
-    alive:        true,
-    missedPings:  0,
-    userId,
-    rejected:     false,
-    ready:        false,
-    investigator: '',
-    outbox,
-    closed:       false,
-  };
-  return c;
-}
-
-function ctxOf(...clients: TestClient[]): HandlerContext {
-  const map = new Map<string, Client>();
-  for (const c of clients) map.set(c.id, c);
-  return { clients: map };
-}
-
-function lastMsg(c: TestClient, type: string): ServerMessage | undefined {
-  return [...c.outbox].reverse().find(m => m.type === type);
-}
 
 beforeEach(() => { resetDb(); });
 

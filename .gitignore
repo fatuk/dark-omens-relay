@@ -12,6 +12,9 @@ rooms-state.json
 # Логи
 logs/
 
+# Coverage report от vitest --coverage
+coverage/
+
 # Переменные окружения
 .env
 .env.*
