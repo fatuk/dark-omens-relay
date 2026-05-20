@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { resetDb } from './helpers.js';
 import { buildApp } from '../src/api/app.js';
-import { db } from '../src/shared/db.js';
+import { db, hashToken } from '../src/shared/db.js';
 import { users, sessions } from '../src/shared/schema.js';
 
 const app = buildApp();
@@ -54,7 +54,7 @@ describe('LLM rate-limit', () => {
     const token  = 'test-token-' + Math.random().toString(36).slice(2);
     const now    = Date.now();
     db.insert(users).values({ id: userId, email: `${userId}@x.com`, name: 'T', createdAt: now }).run();
-    db.insert(sessions).values({ token, userId, createdAt: now, expiresAt: now + 86400_000 }).run();
+    db.insert(sessions).values({ tokenHash: hashToken(token), userId, createdAt: now, expiresAt: now + 86400_000 }).run();
     return token;
   }
 

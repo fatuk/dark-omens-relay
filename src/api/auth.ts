@@ -4,7 +4,7 @@ import { z }         from 'zod';
 import { randomUUID, randomInt } from 'crypto';
 import { eq, lt, and, gt } from 'drizzle-orm';
 
-import { db }        from '../shared/db.js';
+import { db, hashToken } from '../shared/db.js';
 import { users, sessions } from '../shared/schema.js';
 import { logger }    from '../shared/logger.js';
 import { bumpRate, clientIp, __resetRateLimitForTests } from '../shared/rate-limit.js';
@@ -106,12 +106,17 @@ auth.post('/verify', zValidator('json', z.object({
   const normalEmail = email;
   const entry = otpStore.get(normalEmail) as (OtpEntry & { hint_name?: string }) | undefined;
 
+  // Единый ответ «не подошёл» для всех случаев (не запрашивался, истёк,
+  // неверный). Разные тексты подсказывают атакующему был ли OTP-entry —
+  // т.е. запрашивал ли этот email когда-либо код. Лимит попыток — отдельный
+  // случай: его сохраняем, чтобы юзер понимал почему отлуп после ввода кода.
+  const INVALID_CODE_MSG = 'Неверный код или код истёк. Запросите новый.';
   if (!entry) {
-    return c.json({ error: 'Код не найден или истёк. Запросите новый.' }, 400);
+    return c.json({ error: INVALID_CODE_MSG }, 400);
   }
   if (Date.now() > entry.expiresAt) {
     otpStore.delete(normalEmail);
-    return c.json({ error: 'Код истёк. Запросите новый.' }, 400);
+    return c.json({ error: INVALID_CODE_MSG }, 400);
   }
   if (entry.attempts >= OTP_MAX_TRIES) {
     otpStore.delete(normalEmail);
@@ -119,7 +124,7 @@ auth.post('/verify', zValidator('json', z.object({
   }
   if (entry.code !== code) {
     entry.attempts++;
-    return c.json({ error: 'Неверный код.' }, 400);
+    return c.json({ error: INVALID_CODE_MSG }, 400);
   }
 
   otpStore.delete(normalEmail);
@@ -136,11 +141,12 @@ auth.post('/verify', zValidator('json', z.object({
   // Удаляем просроченные сессии этого юзера
   db.delete(sessions).where(and(eq(sessions.userId, user.id), lt(sessions.expiresAt, Date.now()))).run();
 
-  // Создаём сессию
+  // Создаём сессию. В БД храним только sha256 — token уходит клиенту в
+  // ответе и нигде на сервере (в логах, БД) не светится.
   const token = randomUUID();
   const now   = Date.now();
   db.insert(sessions).values({
-    token,
+    tokenHash: hashToken(token),
     userId:    user.id,
     createdAt: now,
     expiresAt: now + SESSION_TTL_MS,
@@ -159,7 +165,7 @@ auth.post('/verify', zValidator('json', z.object({
 auth.post('/logout', async (c) => {
   const token = c.req.header('Authorization')?.replace('Bearer ', '');
   if (token) {
-    db.delete(sessions).where(eq(sessions.token, token)).run();
+    db.delete(sessions).where(eq(sessions.tokenHash, hashToken(token))).run();
   }
   return c.json({ ok: true });
 });
@@ -169,8 +175,9 @@ auth.get('/me', async (c) => {
   const token = c.req.header('Authorization')?.replace('Bearer ', '');
   if (!token) return c.json({ error: 'Unauthorized' }, 401);
 
-  const now = Date.now();
-  const session = db.select().from(sessions).where(eq(sessions.token, token)).get();
+  const now  = Date.now();
+  const hash = hashToken(token);
+  const session = db.select().from(sessions).where(eq(sessions.tokenHash, hash)).get();
   if (!session || session.expiresAt < now) {
     return c.json({ error: 'Session expired' }, 401);
   }
@@ -183,7 +190,7 @@ auth.get('/me', async (c) => {
   if (session.expiresAt - now < renewThreshold) {
     db.update(sessions)
       .set({ expiresAt: now + SESSION_TTL_MS })
-      .where(eq(sessions.token, token))
+      .where(eq(sessions.tokenHash, hash))
       .run();
     logger.debug('session renewed', { userId: user.id });
   }

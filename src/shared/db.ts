@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
+import { createHash } from 'crypto';
 import { join } from 'path';
 import * as schema from './schema.js';
 
@@ -14,14 +15,19 @@ sqlite.pragma('foreign_keys = ON');
 
 export const db = drizzle(sqlite, { schema });
 
+/** sha256(token), hex. Token хранится только в виде хеша — см. sessions.token_hash. */
+export function hashToken(token: string): string {
+  return createHash('sha256').update(token).digest('hex');
+}
+
 /** Синхронная проверка токена. Возвращает {id, name} если токен валиден, иначе null. */
 export function getUserByToken(token: string): { id: string; name: string } | null {
   const row = sqlite.prepare(`
     SELECT u.id, u.name
     FROM sessions s
     JOIN users u ON s.user_id = u.id
-    WHERE s.token = ? AND s.expires_at > ?
-  `).get(token, Date.now()) as { id: string; name: string } | undefined;
+    WHERE s.token_hash = ? AND s.expires_at > ?
+  `).get(hashToken(token), Date.now()) as { id: string; name: string } | undefined;
   return row ?? null;
 }
 
@@ -36,7 +42,7 @@ export function initDb(): void {
     );
 
     CREATE TABLE IF NOT EXISTS sessions (
-      token      TEXT PRIMARY KEY,
+      token_hash TEXT PRIMARY KEY,
       user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       created_at INTEGER NOT NULL,
       expires_at INTEGER NOT NULL
@@ -81,9 +87,32 @@ export function initDb(): void {
   `);
   // Миграция для старых БД: добавляем snapshot, если его не было.
   // SQLite не умеет ADD COLUMN IF NOT EXISTS, поэтому проверяем через PRAGMA.
-  const cols = sqlite.prepare(`PRAGMA table_info(game_sessions)`).all() as Array<{ name: string }>;
-  if (!cols.some(c => c.name === 'snapshot')) {
+  const gs_cols = sqlite.prepare(`PRAGMA table_info(game_sessions)`).all() as Array<{ name: string }>;
+  if (!gs_cols.some(c => c.name === 'snapshot')) {
     sqlite.exec(`ALTER TABLE game_sessions ADD COLUMN snapshot TEXT`);
+  }
+
+  // Миграция sessions: старая схема хранила plaintext token как PK.
+  // Если БД создана до перехода на token_hash — старые сессии не валидны
+  // (восстановить хеш из plaintext в БД мы могли бы, но это противоречит
+  // самой идее: если хочешь sha256, plaintext в файле БД быть не должен).
+  // Стираем sessions целиком — юзеры перелогинятся один раз.
+  const s_cols = sqlite.prepare(`PRAGMA table_info(sessions)`).all() as Array<{ name: string }>;
+  if (s_cols.some(c => c.name === 'token') && !s_cols.some(c => c.name === 'token_hash')) {
+    console.log('[db] migrating sessions to token_hash — existing sessions will be invalidated');
+    sqlite.transaction(() => {
+      sqlite.exec(`
+        DROP TABLE sessions;
+        CREATE TABLE sessions (
+          token_hash TEXT PRIMARY KEY,
+          user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          created_at INTEGER NOT NULL,
+          expires_at INTEGER NOT NULL
+        );
+        CREATE INDEX idx_sessions_user    ON sessions(user_id);
+        CREATE INDEX idx_sessions_expires ON sessions(expires_at);
+      `);
+    })();
   }
   console.log(`[db] SQLite ready at ${DB_PATH}`);
 }

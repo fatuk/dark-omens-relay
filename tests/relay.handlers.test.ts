@@ -3,7 +3,7 @@ import { randomUUID } from 'crypto';
 import { resetDb } from './helpers.js';
 import { handle, leaveRoom, type HandlerContext } from '../src/relay/handlers.js';
 import { listRooms, getRoom, getPlayerCount } from '../src/relay/rooms.js';
-import { getGameSession, getGamePlayer, db } from '../src/shared/db.js';
+import { getGameSession, getGamePlayer, db, hashToken } from '../src/shared/db.js';
 import { users, sessions } from '../src/shared/schema.js';
 import type { Client, ServerMessage } from '../src/shared/types.js';
 
@@ -64,7 +64,7 @@ describe('hello', () => {
   it('с валидным токеном — name/userId из БД', () => {
     db.insert(users).values({ id: 'u1', email: 'a@b.c', name: 'AuthedAlice', createdAt: Date.now() }).run();
     db.insert(sessions).values({
-      token: 'tok-good', userId: 'u1', createdAt: Date.now(), expiresAt: Date.now() + 60_000,
+      tokenHash: hashToken('tok-good'), userId: 'u1', createdAt: Date.now(), expiresAt: Date.now() + 60_000,
     }).run();
 
     const c = makeClient();

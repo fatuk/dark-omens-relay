@@ -7,8 +7,11 @@ export const users = sqliteTable('users', {
   createdAt: integer('created_at').notNull(),
 });
 
+// Храним sha256(token), не сам token. Утечка БД больше не даёт угона
+// сессий — атакующий получит хеши, по ним вернуть оригинал нельзя.
+// Сравнение при валидации — по такому же хешу от присланного клиентом token.
 export const sessions = sqliteTable('sessions', {
-  token:     text('token').primaryKey(),
+  tokenHash: text('token_hash').primaryKey(),
   userId:    text('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   createdAt: integer('created_at').notNull(),
   expiresAt: integer('expires_at').notNull(),
