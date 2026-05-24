@@ -83,7 +83,7 @@ export function handle(client: Client, msg: ClientMessage, ctx: HandlerContext):
       if (client.roomId) return sendError(client, 'Вы уже в комнате');
       const name = String(msg.room_name ?? '').slice(0, 64).trim();
       if (!name) return sendError(client, 'Укажите название комнаты');
-      const maxPlayers = clamp(Number(msg.max_players) || 8, 2, 16);
+      const maxPlayers = clamp(Number(msg.max_players) || 8, 1, 8);
       const room = createRoom(client, name, msg.password ?? '', maxPlayers);
       client.roomId = room.id;
       onRoomCreated();

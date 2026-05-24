@@ -18,6 +18,7 @@ const HOUR_MS = 60 * 60 * 1000;
 import {
   buildEncounterPrompt, ENCOUNTER_TOOL, DEFAULT_LANGUAGE,
   LOCATION_TYPES, CONDITIONS, ENCOUNTER_KINDS, OTHER_WORLDS,
+  SKILL_NAMES, pickWeightedSkill,
   type EncounterPromptInput, type CampaignContext,
 } from './encounter-prompt.js';
 
@@ -39,6 +40,9 @@ const requestSchema = z.object({
   // Иной мир за вратами — для kind: "gate".
   otherWorld: z.enum(OTHER_WORLDS).optional(),
   conditions: z.array(z.enum(CONDITIONS)).max(12).default([]),
+  // Принудительный навык проверки (general/research). Не задан → выберем
+  // случайно на сервере (для разнообразия). Для gate игнорируется.
+  forceSkill: z.enum(SKILL_NAMES).optional(),
   count:      z.number().int().min(1).max(5).default(1),
   themeHint:  z.string().max(120).optional(),
   // Язык карточек — название языка ("Russian", "English", "Español", ...).
@@ -158,11 +162,19 @@ encounters.post('/generate', zValidator('json', requestSchema), async (c) => {
     );
   }
 
+  // Навык проверки: явный из запроса, иначе взвешенный по (kind × тип локации)
+  // для тематичного разнообразия; для gate не форсим (две стадии — свои навыки).
+  const locType = input.realLocation?.locationType ?? 'city';
+  const forceSkill = input.kind === 'gate'
+    ? undefined
+    : (input.forceSkill ?? pickWeightedSkill(input.kind, locType));
+
   const promptInput: EncounterPromptInput = {
     kind:         input.kind,
     investigator: input.investigator,
     realLocation: input.realLocation,
     otherWorld:   input.otherWorld,
+    forceSkill,
     conditions:   input.conditions,
     count:        input.count,
     themeHint:    input.themeHint,

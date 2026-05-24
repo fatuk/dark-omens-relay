@@ -13,6 +13,43 @@ import { EFFECT_REF, EFFECT_DEF_NAME, effectJsonDef } from './effect-dsl.js';
 export const SKILL_NAMES = ['lore', 'influence', 'observation', 'strength', 'will'] as const;
 export type SkillName = typeof SKILL_NAMES[number];
 
+/** Случайный навык (равновероятно) — фолбэк. */
+export function pickRandomSkill(): SkillName {
+  return SKILL_NAMES[Math.floor(Math.random() * SKILL_NAMES.length)];
+}
+
+/** Веса навыков по (kind × тип локации). Минимум 1 у каждого навыка задаётся в
+ *  pickWeightedSkill — так любой навык остаётся возможным («дикий» исход). */
+type SkillWeights = Partial<Record<SkillName, number>>;
+const SKILL_WEIGHTS: Record<'general' | 'research', Record<LocationType, SkillWeights>> = {
+  // Обычная встреча: чем «занимаются» в таком месте.
+  general: {
+    city:       { influence: 3, lore: 2, observation: 2, will: 2, strength: 1 },
+    wilderness: { observation: 3, strength: 3, will: 2, lore: 1, influence: 1 },
+    sea:        { strength: 3, observation: 2, will: 2, influence: 2, lore: 1 },
+  },
+  // Поиск улики: как именно её добывают в таком месте.
+  research: {
+    city:       { lore: 3, influence: 3, observation: 2, will: 1, strength: 1 },  // архивы, расспросы
+    wilderness: { observation: 3, lore: 2, will: 2, strength: 2, influence: 1 },  // следы, руины, раскопки
+    sea:        { observation: 3, strength: 2, lore: 2, will: 2, influence: 1 },  // обыск останков, нырять
+  },
+};
+
+/** Навык проверки с учётом контекста (тип встречи + тип локации). Для gate не
+ *  применяется. Минимальный вес 1 у каждого навыка — редкие нетипичные исходы. */
+export function pickWeightedSkill(kind: EncounterKind, locationType: LocationType): SkillName {
+  const table = (kind === 'research' ? SKILL_WEIGHTS.research : SKILL_WEIGHTS.general)[locationType];
+  const weighted = SKILL_NAMES.map((s) => [s, Math.max(1, table[s] ?? 1)] as [SkillName, number]);
+  const total = weighted.reduce((sum, [, w]) => sum + w, 0);
+  let r = Math.random() * total;
+  for (const [s, w] of weighted) {
+    r -= w;
+    if (r < 0) return s;
+  }
+  return weighted[weighted.length - 1][0];
+}
+
 export const TAGS = ['weapon', 'trinket', 'item', 'magical', 'relic', 'ally', 'service', 'teamwork'] as const;
 export type Tag = typeof TAGS[number];
 
@@ -76,6 +113,10 @@ export interface EncounterPromptInput {
   };
   /** Иной мир за вратами — для kind: "gate". */
   otherWorld?: OtherWorld;
+  /** Принудительный навык проверки (general/research) — задаётся случайно для
+   *  разнообразия; модель строит mainText и исход вокруг него. Для gate не
+   *  применяется (две стадии — свои навыки). */
+  forceSkill?: SkillName;
   /** Активные состояния на сыщике (чтобы не выдать дубликат + для флейвора). */
   conditions: Condition[];
   /** Сколько карточек сгенерировать за вызов. */
@@ -116,7 +157,13 @@ The user message states the encounter \`kind\` — write to it:
 - \`research\` — an encounter at a location where a clue waits, tied to the
   campaign's current Mystery. On success it yields a clue or a lead the
   investigators can turn into Mystery progress; it carries the Ancient One's
-  dread.
+  dread. A clue is uncovered in MANY ways — do NOT default to "searching"
+  (observation). Invent a concrete approach and pick the skill that fits it,
+  and VARY it across cards: decipher documents or occult marks (lore), press a
+  witness or talk your way in (influence), comb the scene for what's hidden
+  (observation), hold your nerve in a haunted place (will), force a vault or
+  dig something out (strength). The fiction decides the skill — not the word
+  "search".
 - \`gate\` — an OTHER WORLD encounter, and it is TWO-STAGE. The investigator
   has stepped through a Gate into an alien realm (\`otherWorld\`). The scene is
   NOT on Earth — it is that realm. Tone is the heaviest — alien geometry,
@@ -401,6 +448,10 @@ ${npcs ? `- Key NPCs you may reuse: ${npcs}\n` : ''}${locs ? `- Key locations: $
     campaignRule = '\n- advance the current Mystery (yield clues/leads it can use) and carry the Ancient One\'s dread';
   }
 
+  const skillRule = (kind !== 'gate' && input.forceSkill)
+    ? `- the test.skill MUST be exactly "${input.forceSkill}" — invent a concrete action that uses ${input.forceSkill} and write mainText so the player attempts it; do NOT pick a different skill`
+    : `- pick a skill check that fits the action described in mainText`;
+
   return `
 Generate ${count} encounter card(s) — kind: ${kind}.
 
@@ -421,7 +472,7 @@ Each encounter must:
 - have \`kind\` = "${kind}"
 - be written entirely in ${language}
 ${placeRules}
-- pick a skill check that fits the action described in mainText
+${skillRule}
 - set test.modifier from reward value + narrative (see "## Difficulty")
 - not duplicate any active condition the investigator already has${campaignRule}
 `.trim();

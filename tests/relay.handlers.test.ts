@@ -90,14 +90,14 @@ describe('create_room', () => {
     expect(lastMsg(c, 'error')).toMatchObject({ message: expect.stringContaining('уже') });
   });
 
-  it('max_players клампится в [2, 16]', () => {
+  it('max_players клампится в [1, 8]', () => {
     const c1 = makeClient('a');
     handle(c1, { type: 'create_room', room_name: 'huge', max_players: 999 } as never, ctxOf(c1));
-    expect(getRoom(c1.roomId!)?.maxPlayers).toBe(16);
+    expect(getRoom(c1.roomId!)?.maxPlayers).toBe(8);
 
     const c2 = makeClient('b');
-    handle(c2, { type: 'create_room', room_name: 'tiny', max_players: 1 } as never, ctxOf(c2));
-    expect(getRoom(c2.roomId!)?.maxPlayers).toBe(2);
+    handle(c2, { type: 'create_room', room_name: 'solo', max_players: 1 } as never, ctxOf(c2));
+    expect(getRoom(c2.roomId!)?.maxPlayers).toBe(1);
   });
 });
 
