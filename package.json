@@ -1,6 +1,6 @@
 {
   "name": "dark-omens-relay",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Relay / matchmaking server for Dark Omens",
   "scripts": {
     "dev": "tsx watch src/relay/server.ts",
